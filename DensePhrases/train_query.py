@@ -17,7 +17,7 @@ from densephrases.utils.squad_utils import get_question_dataloader
 from densephrases.utils.single_utils import load_encoder
 from densephrases.utils.open_utils import load_phrase_index, get_query2vec, load_qa_pairs
 from densephrases.utils.eval_utils import drqa_exact_match_score, drqa_regex_match_score, \
-                                          drqa_metric_max_over_ground_truths
+    drqa_metric_max_over_ground_truths
 from eval_phrase_retrieval import evaluate
 from densephrases import Options
 
@@ -53,41 +53,48 @@ def train_query_encoder(args, mips=None):
         return True
     no_decay = ["bias", "LayerNorm.weight"]
     optimizer_grouped_parameters = [{
-            "params": [
-                p for n, p in target_encoder.named_parameters() \
-                    if not any(nd in n for nd in no_decay) and is_train_param(n)
-            ],
-            "weight_decay": 0.01,
-        }, {
-            "params": [
-                p for n, p in target_encoder.named_parameters() \
-                    if any(nd in n for nd in no_decay) and is_train_param(n)
-            ],
-            "weight_decay": 0.0
-        },
+        "params": [
+            p for n, p in target_encoder.named_parameters()
+            if not any(nd in n for nd in no_decay) and is_train_param(n)
+        ],
+        "weight_decay": 0.01,
+    }, {
+        "params": [
+            p for n, p in target_encoder.named_parameters()
+            if any(nd in n for nd in no_decay) and is_train_param(n)
+        ],
+        "weight_decay": 0.0
+    },
     ]
-    optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
-    step_per_epoch = math.ceil(len(load_qa_pairs(args.train_path, args)[1]) / args.per_gpu_train_batch_size)
-    t_total = int(step_per_epoch // args.gradient_accumulation_steps * args.num_train_epochs)
+    optimizer = AdamW(optimizer_grouped_parameters,
+                      lr=args.learning_rate, eps=args.adam_epsilon)
+    step_per_epoch = math.ceil(len(load_qa_pairs(args.train_path, args)[
+                               1]) / args.per_gpu_train_batch_size)
+    t_total = int(step_per_epoch //
+                  args.gradient_accumulation_steps * args.num_train_epochs)
     logger.info(f"Train for {t_total} iterations")
     scheduler = get_linear_schedule_with_warmup(
         optimizer, num_warmup_steps=args.warmup_steps, num_training_steps=t_total
-     )
-    eval_steps = math.ceil(len(load_qa_pairs(args.dev_path, args)[1]) / args.eval_batch_size)
+    )
+    eval_steps = math.ceil(
+        len(load_qa_pairs(args.dev_path, args)[1]) / args.eval_batch_size)
     logger.info(f"Test takes {eval_steps} iterations")
 
     # Train arguments
-    args.per_gpu_train_batch_size = int(args.per_gpu_train_batch_size / args.gradient_accumulation_steps)
+    args.per_gpu_train_batch_size = int(
+        args.per_gpu_train_batch_size / args.gradient_accumulation_steps)
     best_acc = -1000.0
     for ep_idx in range(int(args.num_train_epochs)):
 
         # Training
-        total_loss = 0.0
+        total_loss_phrase = 0.0
+        total_loss_doc = 0.0
         total_accs = []
         total_accs_k = []
 
         # Load training dataset
-        q_ids, questions, answers, titles = load_qa_pairs(args.train_path, args, shuffle=True)
+        q_ids, questions, answers, titles = load_qa_pairs(
+            args.train_path, args, shuffle=True)
         pbar = tqdm(get_top_phrases(
             mips, q_ids, questions, answers, titles, pretrained_encoder, tokenizer,
             args.per_gpu_train_batch_size, args)
@@ -97,19 +104,22 @@ def train_query_encoder(args, mips=None):
             train_dataloader, _, _ = get_question_dataloader(
                 questions, tokenizer, args.max_query_length, batch_size=args.per_gpu_train_batch_size
             )
-            svs, evs, tgts, p_tgts = annotate_phrase_vecs(mips, q_ids, questions, answers, titles, outs, args)
+            svs, evs, tgts, p_tgts = annotate_phrase_vecs(
+                mips, q_ids, questions, answers, titles, outs, args)
 
             target_encoder.train()
             svs_t = torch.Tensor(svs).to(device)
             evs_t = torch.Tensor(evs).to(device)
-            tgts_t = [torch.Tensor([tgt_ for tgt_ in tgt if tgt_ is not None]).to(device) for tgt in tgts]
-            p_tgts_t = [torch.Tensor([tgt_ for tgt_ in tgt if tgt_ is not None]).to(device) for tgt in p_tgts]
+            tgts_t = [torch.Tensor([tgt_ for tgt_ in tgt if tgt_ is not None]).to(
+                device) for tgt in tgts]
+            p_tgts_t = [torch.Tensor([tgt_ for tgt_ in tgt if tgt_ is not None]).to(
+                device) for tgt in p_tgts]
 
             # Train query encoder
             assert len(train_dataloader) == 1
             for batch in train_dataloader:
                 batch = tuple(t.to(device) for t in batch)
-                loss, accs = target_encoder.train_query(
+                loss_phrase, loss_doc, accs = target_encoder.train_query(
                     input_ids_=batch[0], attention_mask_=batch[1], token_type_ids_=batch[2],
                     start_vecs=svs_t,
                     end_vecs=evs_t,
@@ -118,27 +128,34 @@ def train_query_encoder(args, mips=None):
                 )
 
                 # Optimize, get acc and report
-                if loss is not None:
+                if loss_phrase is not None and loss_doc is not None:
                     if args.gradient_accumulation_steps > 1:
-                        loss = loss / args.gradient_accumulation_steps
+                        loss_phrase = loss_phrase / args.gradient_accumulation_steps
+                        loss_doc = loss_doc / args.gradient_accumulation_steps
                     if args.fp16:
-                        with amp.scale_loss(loss, optimizer) as scaled_loss:
+                        with amp.scale_loss(loss_phrase, optimizer) as scaled_loss:
+                            scaled_loss.backward()
+                        with amp.scale_loss(loss_doc, optimizer) as scaled_loss:
                             scaled_loss.backward()
                     else:
-                        loss.backward()
+                        loss_phrase.backward(retain_graph=True)
+                        loss_doc.backward()
 
-                    total_loss += loss.mean().item()
+                    total_loss_phrase += loss_phrase.mean().item()
+                    total_loss_doc += loss_doc.mean().item()
                     if args.fp16:
-                        torch.nn.utils.clip_grad_norm_(amp.master_params(optimizer), args.max_grad_norm)
+                        torch.nn.utils.clip_grad_norm_(
+                            amp.master_params(optimizer), args.max_grad_norm)
                     else:
-                        torch.nn.utils.clip_grad_norm_(target_encoder.parameters(), args.max_grad_norm)
+                        torch.nn.utils.clip_grad_norm_(
+                            target_encoder.parameters(), args.max_grad_norm)
 
                     optimizer.step()
                     scheduler.step()  # Update learning rate schedule
                     target_encoder.zero_grad()
 
                     pbar.set_description(
-                        f"Ep {ep_idx+1} Tr loss: {loss.mean().item():.2f}, acc: {sum(accs)/len(accs):.3f}"
+                        f"Ep {ep_idx+1} Tr loss_phrase: {loss_phrase.mean().item():.2f}, Tr loss_doc: {loss_doc.mean().item():.2f}, acc: {sum(accs)/len(accs):.3f}"
                     )
 
                 if accs is not None:
@@ -150,7 +167,7 @@ def train_query_encoder(args, mips=None):
 
         step_idx += 1
         logger.info(
-            f"Avg train loss ({step_idx} iterations): {total_loss/step_idx:.2f} | train " +
+            f"Avg train loss ({step_idx} iterations, phrase / doc): {total_loss_phrase/step_idx:.2f} / {total_loss_doc/step_idx:.2f} | train " +
             f"acc@1: {sum(total_accs)/len(total_accs):.3f} | acc@{args.top_k}: {sum(total_accs_k)/len(total_accs_k):.3f}"
         )
 
@@ -159,7 +176,8 @@ def train_query_encoder(args, mips=None):
         new_args.top_k = 10
         new_args.save_pred = False
         new_args.test_path = args.dev_path
-        dev_em, dev_f1, dev_emk, dev_f1k = evaluate(new_args, mips, target_encoder, tokenizer)
+        dev_em, dev_f1, dev_emk, dev_f1k = evaluate(
+            new_args, mips, target_encoder, tokenizer)
         logger.info(f"Develoment set acc@1: {dev_em:.3f}, f1@1: {dev_f1:.3f}")
 
         # Save best model
@@ -169,7 +187,8 @@ def train_query_encoder(args, mips=None):
             if not os.path.exists(save_path):
                 os.makedirs(save_path)
             target_encoder.save_pretrained(save_path)
-            logger.info(f"Saved best model with acc {best_acc:.3f} into {save_path}")
+            logger.info(
+                f"Saved best model with acc {best_acc:.3f} into {save_path}")
 
         if (ep_idx + 1) % 1 == 0:
             logger.info('Updating pretrained encoder')
@@ -200,7 +219,8 @@ def get_top_phrases(mips, q_ids, questions, answers, titles, query_encoder, toke
             max_answer_length=args.max_answer_length, aggregate=args.aggregate, agg_strat=args.agg_strat,
         )
         yield (
-            q_ids[q_idx:q_idx+step], questions[q_idx:q_idx+step], answers[q_idx:q_idx+step],
+            q_ids[q_idx:q_idx+step], questions[q_idx:q_idx +
+                                               step], answers[q_idx:q_idx+step],
             titles[q_idx:q_idx+step], outs
         )
 
@@ -231,15 +251,19 @@ def annotate_phrase_vecs(mips, q_ids, questions, answers, titles, phrase_groups,
         assert len(phrase_groups[b_idx]) == args.top_k*2
 
     # Flatten phrase groups
-    flat_phrase_groups = [phrase for phrase_group in phrase_groups for phrase in phrase_group]
-    doc_idxs = [int(phrase_group['doc_idx']) for phrase_group in flat_phrase_groups]
-    start_vecs = [phrase_group['start_vec'] for phrase_group in flat_phrase_groups]
+    flat_phrase_groups = [
+        phrase for phrase_group in phrase_groups for phrase in phrase_group]
+    doc_idxs = [int(phrase_group['doc_idx'])
+                for phrase_group in flat_phrase_groups]
+    start_vecs = [phrase_group['start_vec']
+                  for phrase_group in flat_phrase_groups]
     end_vecs = [phrase_group['end_vec'] for phrase_group in flat_phrase_groups]
-    
+
     # stack vectors
     start_vecs = np.stack(start_vecs)
     end_vecs = np.stack(end_vecs)
-    zero_mask = np.array([[1] if doc_idx >= 0 else [0] for doc_idx in doc_idxs])
+    zero_mask = np.array([[1] if doc_idx >= 0 else [0]
+                         for doc_idx in doc_idxs])
     start_vecs = start_vecs * zero_mask
     end_vecs = end_vecs * zero_mask
 
@@ -248,8 +272,10 @@ def annotate_phrase_vecs(mips, q_ids, questions, answers, titles, phrase_groups,
     end_vecs = np.reshape(end_vecs, (batch_size, args.top_k*2, -1))
 
     # Dummy targets
-    targets = [[None for phrase in phrase_group] for phrase_group in phrase_groups]
-    p_targets = [[None for phrase in phrase_group] for phrase_group in phrase_groups]
+    targets = [[None for phrase in phrase_group]
+               for phrase_group in phrase_groups]
+    p_targets = [[None for phrase in phrase_group]
+                 for phrase_group in phrase_groups]
 
     # TODO: implement dynamic label_strategy based on the task name (label_strat = dynamic)
 
@@ -259,18 +285,22 @@ def annotate_phrase_vecs(mips, q_ids, questions, answers, titles, phrase_groups,
             drqa_regex_match_score if args.regex or ('trec' in q_id.lower()) else drqa_exact_match_score for q_id in q_ids
         ]
         targets = [
-            [drqa_metric_max_over_ground_truths(match_fn, phrase['answer'], answer_set) for phrase in phrase_group]
+            [drqa_metric_max_over_ground_truths(
+                match_fn, phrase['answer'], answer_set) for phrase in phrase_group]
             for phrase_group, answer_set, match_fn in zip(phrase_groups, answers, match_fns)
         ]
-        targets = [[ii if val else None for ii, val in enumerate(target)] for target in targets]
+        targets = [[ii if val else None for ii,
+                    val in enumerate(target)] for target in targets]
 
     # Annotate for L_doc
     if 'doc' in args.label_strat.split(','):
         p_targets = [
-            [any(phrase['title'][0].lower() == tit.lower() for tit in title) for phrase in phrase_group]
+            [any(phrase['title'][0].lower() == tit.lower()
+                 for tit in title) for phrase in phrase_group]
             for phrase_group, title in zip(phrase_groups, titles)
         ]
-        p_targets = [[ii if val else None for ii, val in enumerate(target)] for target in p_targets]
+        p_targets = [[ii if val else None for ii,
+                      val in enumerate(target)] for target in p_targets]
 
     return start_vecs, end_vecs, targets, p_targets
 
