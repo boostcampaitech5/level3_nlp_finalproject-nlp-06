@@ -473,7 +473,6 @@ class MIPS(object):
         if agg_add_weight:
             doc_ans_ans = {}
             scores = [res['score'] for res in results]
-            mean = sum(scores)/len(scores)
         for r_idx, result in enumerate(results):
             if agg_strat == 'opt1':  # standard deduplication for phrase retrieval
                 da = f'{result["title"]}_{result["start_pos"]}_{result["end_pos"]}'
@@ -494,7 +493,8 @@ class MIPS(object):
             else:
                 if agg_add_weight:
                     if result['answer'] not in doc_ans_ans[da]:
-                        results[doc_ans[da]]['score'] += result['score'] / mean
+                        results[doc_ans[da]
+                                ]['score'] += result['score'] / scores[0]
                         doc_ans_ans[da].add(result['answer'])
                 result['score'] = -1e8
                 if agg_strat == 'opt4':
