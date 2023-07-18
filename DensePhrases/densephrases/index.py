@@ -470,6 +470,8 @@ class MIPS(object):
     def aggregate_results(self, results, top_k=10, q_text=None, agg_strat='opt1', agg_add_weight=False):
         out = []
         doc_ans = {}
+        if agg_add_weight:
+            doc_ans_ans = {}
         for r_idx, result in enumerate(results):
             if agg_strat == 'opt1':  # standard deduplication for phrase retrieval
                 da = f'{result["title"]}_{result["start_pos"]}_{result["end_pos"]}'
@@ -485,9 +487,13 @@ class MIPS(object):
 
             if da not in doc_ans:
                 doc_ans[da] = r_idx
+                if agg_add_weight:
+                    doc_ans_ans[da] = set([result['answer']])
             else:
                 if agg_add_weight:
-                    result[doc_ans[da]]['score'] += result['score']
+                    if result['answer'] not in doc_ans_ans[da]:
+                        results[doc_ans[da]]['score'] += result['score']
+                        doc_ans_ans[da].add(result['answer'])
                 result['score'] = -1e8
                 if agg_strat == 'opt4':
                     if result['title'][0] not in results[doc_ans[da]]['title']:  # Merge doc titles
