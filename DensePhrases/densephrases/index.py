@@ -492,7 +492,8 @@ class MIPS(object):
             else:
                 if agg_add_weight:
                     if result['answer'] not in doc_ans_ans[da]:
-                        results[doc_ans[da]]['score'] += result['score']
+                        results[doc_ans[da]]['score'] += result['score'] * \
+                            (1-r_idx/len(results))
                         doc_ans_ans[da].add(result['answer'])
                 result['score'] = -1e8
                 if agg_strat == 'opt4':
