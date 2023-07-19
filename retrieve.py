@@ -25,7 +25,8 @@ class Retriever():
         # load model
         self.model = DensePhrases(
             # change query encoder after re-training
-            load_dir=self.args.query_encoder_name_or_dir,
+            p_load_dir=self.args.query_encoder_phrase,
+            s_load_dir=self.args.query_encoder_sentence,
             dump_dir=DUMP_DIR,
             index_name=self.args.index_name
         )
@@ -86,6 +87,11 @@ if __name__ == "__main__":
                         help="output runfile name which indluces query id and retrieved collection")
     parser.add_argument('--batch_size', type=int, default=1,
                         help="#query to process with parallel processing")
+    
+    parser.add_argument('--query_encoder_phrase', type=str, default=None,
+                        help="custom query encoder checkpoint directory")
+    parser.add_argument('--query_encoder_sentence', type=str, default=None,
+                        help="custom query encoder checkpoint directory")
 
     args = parser.parse_args()
 

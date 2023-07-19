@@ -186,25 +186,34 @@ class MIPS(object):
         each['end_pos'] -= sents[sent_idxs[0]][1]
         return each
 
-    def search_dense(self, query, q_texts, nprobe=256, top_k=10):
+    def search_dense(self, query, p_query, s_query, q_texts, nprobe=256, top_k=10):
         batch_size, d = query.shape
         # self.index.nprobe = nprobe # For OPQ, this is already set as 256
 
         # Stack start/end and benefit from multi-threading
         start_time = time()
-        query = query.astype(np.float32)
-        query_start, query_end = np.split(query, 2, axis=1)
-        query_concat = np.concatenate((query_start, query_end), axis=0)
+        p_query = p_query.astype(np.float32)
+        p_query_start, p_query_end = np.split(p_query, 2, axis=1)
+        p_query_concat = np.concatenate((p_query_start, p_query_end), axis=0)
+
+        s_query = s_query.astype(np.float32)
+        s_query_start, s_query_end = np.split(s_query, 2, axis=1)
+        s_query_concat = np.concatenate((s_query_start, s_query_end), axis=0)
 
         # Search with faiss
-        b_scores, I = self.index.search(query_concat, top_k)
+        p_b_scores, p_I = self.index.search(p_query_concat, top_k)
+        s_b_scores, s_I = self.index.search(s_query_concat, top_k*2)
+
+
+
+
         b_start_scores, start_I = b_scores[:batch_size,:], I[:batch_size,:]
         b_end_scores, end_I = b_scores[batch_size:,:], I[batch_size:,:]
         logger.debug(f'1) {time()-start_time:.3f}s: MIPS')
 
         # Get idxs from resulting I
         start_time = time()
-        b_start_doc_idxs, b_start_idxs = self.get_idxs(start_I)
+        b_start_doc_idxs, b_start_idxs = self.get_idxs(start_I) # document index, phrase index?
         b_end_doc_idxs, b_end_idxs = self.get_idxs(end_I)
 
         # Number of unique docs
@@ -447,7 +456,7 @@ class MIPS(object):
         results = list(filter(lambda x: x['score'] > -1e5, results)) # not exactly top-k but will be cut during evaluation
         return results
 
-    def search(self, query, q_texts=None,
+    def search(self, p_query, s_query, q_texts=None,
                nprobe=256, top_k=10,
                aggregate=False, return_idxs=False,
                max_answer_length=10, agg_strat='opt1', return_sent=False):
@@ -455,7 +464,7 @@ class MIPS(object):
         # MIPS on start/end
         start_time = time()
         start_doc_idxs, start_idxs, start_I, end_doc_idxs, end_idxs, end_I, start_scores, end_scores = self.search_dense(
-            query,
+            query, p_query, s_query,
             q_texts=q_texts,
             nprobe=nprobe,
             top_k=top_k,

@@ -58,7 +58,7 @@ train-query: dump-dir model-name nq-open-data large-index
 		--per_gpu_train_batch_size 12 \
 		--eval_batch_size 12 \
 		--learning_rate 3e-5 \
-		--num_train_epochs 5 \
+		--num_train_epochs 3 \
 		--dump_dir $(DUMP_DIR) \
 		--index_name start/$(NUM_CLUSTERS)_flat_$(INDEX_TYPE)_small \
 		--load_dir $(LOAD_DIR_OR_PRETRAINED_HF_NAME) \
