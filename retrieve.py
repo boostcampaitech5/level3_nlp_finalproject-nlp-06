@@ -74,9 +74,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description='Retrieve query-relevant collection with varying topK.')
 
-    parser.add_argument('--query_encoder_name_or_dir', type=str, default="princeton-nlp/densephrases-multi-query-multi",
+    parser.add_argument('--query_encoder_name_or_dir', type=str, default="princeton-nlp/densephrases-multi",
                         help="query encoder name registered in huggingface model hub OR custom query encoder checkpoint directory")
-    parser.add_argument('--index_name', type=str, default="start/1048576_flat_OPQ96",
+    parser.add_argument('--index_name', type=str, default="start/1048576_flat_OPQ96_small",
                         help="index name appended to index directory prefix")
     parser.add_argument('--query_list_path', type=str, default="DensePhrases/densephrases-data/open-qa/nq-open/test_preprocessed.json",
                         help="use batch search by default")
@@ -84,7 +84,7 @@ if __name__ == "__main__":
                         help="if presented do online search instead of batch search")
     parser.add_argument('--runfile_name', type=str, default="run.tsv",
                         help="output runfile name which indluces query id and retrieved collection")
-    parser.add_argument('--batch_size', type=int, default=1,
+    parser.add_argument('--batch_size', type=int, default=128,
                         help="#query to process with parallel processing")
     parser.add_argument('--unit', type=str, default='sentence',
                         help="weight scores for duplicate unit when aggregate")

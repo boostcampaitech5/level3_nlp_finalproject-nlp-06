@@ -88,61 +88,61 @@ def train_query_encoder(args, mips=None):
 
         # Training
         total_loss_phrase = 0.0
-        total_loss_doc = 0.0
+        total_loss_context = 0.0
         total_accs = []
         total_accs_k = []
 
         # Load training dataset
-        q_ids, questions, answers, titles = load_qa_pairs(
+        q_ids, questions, answers, titles, sentences, contexts = load_qa_pairs(
             args.train_path, args, shuffle=True)
         pbar = tqdm(get_top_phrases(
-            mips, q_ids, questions, answers, titles, pretrained_encoder, tokenizer,
+            mips, q_ids, questions, answers, titles, sentences, contexts, pretrained_encoder, tokenizer,
             args.per_gpu_train_batch_size, args)
         )
 
-        for step_idx, (q_ids, questions, answers, titles, outs) in enumerate(pbar):
+        for step_idx, (q_ids, questions, answers, titles, sentences, contexts, outs) in enumerate(pbar):
             train_dataloader, _, _ = get_question_dataloader(
                 questions, tokenizer, args.max_query_length, batch_size=args.per_gpu_train_batch_size
             )
-            svs, evs, tgts, p_tgts = annotate_phrase_vecs(
-                mips, q_ids, questions, answers, titles, outs, args)
+            svs, evs, tgts, c_tgts = annotate_phrase_vecs(
+                mips, q_ids, questions, answers, titles, sentences, contexts, outs, args)
 
             target_encoder.train()
             svs_t = torch.Tensor(svs).to(device)
             evs_t = torch.Tensor(evs).to(device)
             tgts_t = [torch.Tensor([tgt_ for tgt_ in tgt if tgt_ is not None]).to(
                 device) for tgt in tgts]
-            p_tgts_t = [torch.Tensor([tgt_ for tgt_ in tgt if tgt_ is not None]).to(
-                device) for tgt in p_tgts]
+            c_tgts_t = [torch.Tensor([tgt_ for tgt_ in tgt if tgt_ is not None]).to(
+                device) for tgt in c_tgts]
 
-            # Train query encoder
             assert len(train_dataloader) == 1
+
             for batch in train_dataloader:
                 batch = tuple(t.to(device) for t in batch)
-                loss_phrase, loss_doc, accs = target_encoder.train_query(
+                loss_phrase, loss_context, accs = target_encoder.train_query(
                     input_ids_=batch[0], attention_mask_=batch[1], token_type_ids_=batch[2],
                     start_vecs=svs_t,
                     end_vecs=evs_t,
                     targets=tgts_t,
-                    p_targets=p_tgts_t,
+                    c_targets=c_tgts_t,
                 )
 
                 # Optimize, get acc and report
-                if loss_phrase is not None and loss_doc is not None:
+                if loss_phrase is not None and loss_context is not None:
                     if args.gradient_accumulation_steps > 1:
                         loss_phrase = loss_phrase / args.gradient_accumulation_steps
-                        loss_doc = loss_doc / args.gradient_accumulation_steps
+                        loss_context = loss_context / args.gradient_accumulation_steps
                     if args.fp16:
                         with amp.scale_loss(loss_phrase, optimizer) as scaled_loss:
                             scaled_loss.backward()
-                        with amp.scale_loss(loss_doc, optimizer) as scaled_loss:
+                        with amp.scale_loss(loss_context, optimizer) as scaled_loss:
                             scaled_loss.backward()
                     else:
                         loss_phrase.backward(retain_graph=True)
-                        loss_doc.backward()
+                        loss_context.backward()
 
                     total_loss_phrase += loss_phrase.mean().item()
-                    total_loss_doc += loss_doc.mean().item()
+                    total_loss_context += loss_context.mean().item()
                     if args.fp16:
                         torch.nn.utils.clip_grad_norm_(
                             amp.master_params(optimizer), args.max_grad_norm)
@@ -155,7 +155,7 @@ def train_query_encoder(args, mips=None):
                     target_encoder.zero_grad()
 
                     pbar.set_description(
-                        f"Ep {ep_idx+1} Tr loss_phrase: {loss_phrase.mean().item():.2f}, Tr loss_doc: {loss_doc.mean().item():.2f}, acc: {sum(accs)/len(accs):.3f}"
+                        f"Ep {ep_idx+1} Tr loss_phrase: {loss_phrase.mean().item():.2f}, Tr loss_context: {loss_context.mean().item():.2f}, acc: {sum(accs)/len(accs):.3f}"
                     )
 
                 if accs is not None:
@@ -167,7 +167,7 @@ def train_query_encoder(args, mips=None):
 
         step_idx += 1
         logger.info(
-            f"Avg train loss ({step_idx} iterations, phrase / doc): {total_loss_phrase/step_idx:.2f} / {total_loss_doc/step_idx:.2f} | train " +
+            f"Avg train loss ({step_idx} iterations, phrase / doc): {total_loss_phrase/step_idx:.2f} / {total_loss_context/step_idx:.2f} | train " +
             f"acc@1: {sum(total_accs)/len(total_accs):.3f} | acc@{args.top_k}: {sum(total_accs_k)/len(total_accs_k):.3f}"
         )
 
@@ -198,11 +198,12 @@ def train_query_encoder(args, mips=None):
     logger.info(f"Best model has acc {best_acc:.3f} saved as {save_path}")
 
 
-def get_top_phrases(mips, q_ids, questions, answers, titles, query_encoder, tokenizer, batch_size, args):
+def get_top_phrases(mips, q_ids, questions, answers, titles, sentences, contexts, query_encoder, tokenizer, batch_size, args):
     # Search
     step = batch_size
     phrase_idxs = []
     search_fn = mips.search
+
     query2vec = get_query2vec(
         query_encoder=query_encoder, tokenizer=tokenizer, args=args, batch_size=batch_size
     )
@@ -221,11 +222,13 @@ def get_top_phrases(mips, q_ids, questions, answers, titles, query_encoder, toke
         yield (
             q_ids[q_idx:q_idx+step], questions[q_idx:q_idx +
                                                step], answers[q_idx:q_idx+step],
-            titles[q_idx:q_idx+step], outs
+            titles[q_idx:q_idx+step],
+            sentences[q_idx:q_idx+step], contexts[q_idx:q_idx+step],
+            outs
         )
 
 
-def annotate_phrase_vecs(mips, q_ids, questions, answers, titles, phrase_groups, args):
+def annotate_phrase_vecs(mips, q_ids, questions, answers, titles, sentences, contexts, phrase_groups, args):
     assert mips is not None
     batch_size = len(answers)
 
@@ -235,6 +238,7 @@ def annotate_phrase_vecs(mips, q_ids, questions, answers, titles, phrase_groups,
     #     out_['start_vec'], out_['end_vec'], out_['context'], out_['title'])
     #     for out_ in out] for out in outs
     # ]
+
     dummy_group = {
         'doc_idx': -1,
         'start_idx': 0, 'end_idx': 0,
@@ -245,6 +249,7 @@ def annotate_phrase_vecs(mips, q_ids, questions, answers, titles, phrase_groups,
     }
 
     # Pad phrase groups (two separate top-k coming from start/end, so pad with top_k*2)
+
     for b_idx, phrase_idx in enumerate(phrase_groups):
         while len(phrase_groups[b_idx]) < args.top_k*2:
             phrase_groups[b_idx].append(dummy_group)
@@ -272,9 +277,10 @@ def annotate_phrase_vecs(mips, q_ids, questions, answers, titles, phrase_groups,
     end_vecs = np.reshape(end_vecs, (batch_size, args.top_k*2, -1))
 
     # Dummy targets
+
     targets = [[None for phrase in phrase_group]
                for phrase_group in phrase_groups]
-    p_targets = [[None for phrase in phrase_group]
+    c_targets = [[None for phrase in phrase_group]
                  for phrase_group in phrase_groups]
 
     # TODO: implement dynamic label_strategy based on the task name (label_strat = dynamic)
@@ -284,6 +290,7 @@ def annotate_phrase_vecs(mips, q_ids, questions, answers, titles, phrase_groups,
         match_fns = [
             drqa_regex_match_score if args.regex or ('trec' in q_id.lower()) else drqa_exact_match_score for q_id in q_ids
         ]
+
         targets = [
             [drqa_metric_max_over_ground_truths(
                 match_fn, phrase['answer'], answer_set) for phrase in phrase_group]
@@ -292,17 +299,16 @@ def annotate_phrase_vecs(mips, q_ids, questions, answers, titles, phrase_groups,
         targets = [[ii if val else None for ii,
                     val in enumerate(target)] for target in targets]
 
-    # Annotate for L_doc
-    if 'doc' in args.label_strat.split(','):
-        p_targets = [
-            [any(phrase['title'][0].lower() == tit.lower()
-                 for tit in title) for phrase in phrase_group]
-            for phrase_group, title in zip(phrase_groups, titles)
+    # Annotate for L_context
+    if 'context' in args.label_strat.split(','):
+        c_targets = [
+            [context[1:] in phrase['context'] for phrase in phrase_group]
+            for phrase_group, context in zip(phrase_groups, contexts)
         ]
-        p_targets = [[ii if val else None for ii,
-                      val in enumerate(target)] for target in p_targets]
+        c_targets = [[ii if val else None for ii,
+                      val in enumerate(target)] for target in c_targets]
 
-    return start_vecs, end_vecs, targets, p_targets
+    return start_vecs, end_vecs, targets, c_targets
 
 
 if __name__ == '__main__':
