@@ -51,12 +51,12 @@ class Retriever():
                 idx = 0
                 for batch_query in tqdm(queries_batch):
                     # retrieve
-                    result = self.model.search(
-                        batch_query, retrieval_unit=R_UNIT, top_k=TOP_K)
+                    result, meta = self.model.search(
+                        batch_query, retrieval_unit=R_UNIT, top_k=TOP_K, return_meta=True)
 
                     # write to runfile
                     for i in range(len(result)):
-                        fw.write(f"{qids[idx]}\t{result[i]}\n")
+                        fw.write(f"{qids[idx]}\t{result[i]}\t{meta[i]}\n")
                         idx += 1
 
             return None
