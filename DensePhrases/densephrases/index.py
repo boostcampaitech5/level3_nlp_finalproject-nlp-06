@@ -13,7 +13,7 @@ from time import time
 from tqdm import tqdm
 from spacy.lang.en import English
 from densephrases.utils.eval_utils import normalize_answer
-
+from collections import defaultdict
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s', datefmt='%m/%d/%Y %H:%M:%S',
                     level=logging.INFO)
@@ -131,7 +131,7 @@ class MIPS(object):
                 for idx in ii:
                     if (idx < 0) or (idx >= self.index.ntotal): print(idx, end=' ')
             I = np.clip(I, a_min=0, a_max=self.index.ntotal-1) 
-            
+        
         offsets = (I / max_idx).astype(np.int64) * int(max_idx)
         idxs = I % int(max_idx)
         doc = np.array(
@@ -186,8 +186,8 @@ class MIPS(object):
         each['end_pos'] -= sents[sent_idxs[0]][1]
         return each
 
-    def search_dense(self, query, p_query, s_query, q_texts, nprobe=256, top_k=10):
-        batch_size, d = query.shape
+    def search_dense(self, p_query, s_query, q_texts, nprobe=256, top_k=10):
+        batch_size, d = p_query.shape
         # self.index.nprobe = nprobe # For OPQ, this is already set as 256
 
         # Stack start/end and benefit from multi-threading
@@ -201,19 +201,64 @@ class MIPS(object):
         s_query_concat = np.concatenate((s_query_start, s_query_end), axis=0)
 
         # Search with faiss
-        p_b_scores, p_I = self.index.search(p_query_concat, top_k)
-        s_b_scores, s_I = self.index.search(s_query_concat, top_k*2)
+        p_scores, p_I = self.index.search(p_query_concat, top_k)
+        s_scores, s_I = self.index.search(s_query_concat, top_k*2)
 
-
-
-
-        b_start_scores, start_I = b_scores[:batch_size,:], I[:batch_size,:]
-        b_end_scores, end_I = b_scores[batch_size:,:], I[batch_size:,:]
+        p_start_scores, p_start_I = p_scores[:batch_size,:], p_I[:batch_size,:]
+        s_start_scores, s_start_I = s_scores[:batch_size,:], s_I[:batch_size,:]
+        p_end_scores, p_end_I = p_scores[batch_size:,:], p_I[batch_size:,:]
+        s_end_scores, s_end_I = s_scores[batch_size:,:], s_I[batch_size:,:]
         logger.debug(f'1) {time()-start_time:.3f}s: MIPS')
 
+        def dynamic_unit(p_scores, p_I, s_scores, s_I):
+            b_scores = []
+            b_I = []
+            dynamic_units = []
+            for sample in range(batch_size):
+                scores = []
+                I = []
+                unit = []
+                tmp = defaultdict(dict)
+                inters = set(p_I[sample].tolist() + s_I[sample].tolist())
+                for k in range(len(p_I[sample])):
+                    k_score = p_scores[sample][k]
+                    k_idx = p_I[sample][k]
+                    if k_idx in inters: tmp[k_idx]['phrase'] = k_score
+                    else:
+                        scores.append(k_score)
+                        I.append(k_idx)
+                        unit.append('phrase')
+                for k in range(len(s_I[sample])):
+                    k_score = s_scores[sample][k]
+                    k_idx = s_I[sample][k]
+                    if k_idx in inters: tmp[k_idx]['sentence'] = k_score
+                    else:
+                        scores.append(k_score)
+                        I.append(k_idx)
+                        unit.append('sentence')
+                for idx, score in tmp.items():
+                    hi = sorted(score.items(), key= lambda x:-x[1])
+                    scores.append(hi[0][1])
+                    I.append(idx)
+                    unit.append(hi[0][0])
+
+                b_scores.append(np.array(scores))
+                b_I.append(np.array(I))
+                dynamic_units.append(unit)
+
+            # match shape for each sample
+            max_len = max(len(i) for i in b_I)
+            b_scores = [i.resize((max_len), refcheck=False) for i in b_scores]
+            b_I = [i.resize((max_len), refcheck=False) for i in b_I]
+
+            return np.array(b_scores), np.array(b_I), dynamic_units
+
+        b_start_scores, start_I, start_unit = dynamic_unit(p_start_scores, p_start_I, s_start_scores, s_start_I)
+        b_end_scores, end_I, end_unit = dynamic_unit(p_end_scores, p_end_I, s_end_scores, s_end_I)
+        
         # Get idxs from resulting I
         start_time = time()
-        b_start_doc_idxs, b_start_idxs = self.get_idxs(start_I) # document index, phrase index?
+        b_start_doc_idxs, b_start_idxs = self.get_idxs(start_I)
         b_end_doc_idxs, b_end_idxs = self.get_idxs(end_I)
 
         # Number of unique docs
@@ -224,10 +269,11 @@ class MIPS(object):
         self.num_docs_list.append(num_docs)
         logger.debug(f'2) {time()-start_time:.3f}s: get index')
 
-        return b_start_doc_idxs, b_start_idxs, start_I, b_end_doc_idxs, b_end_idxs, end_I, b_start_scores, b_end_scores
+        return b_start_doc_idxs, b_start_idxs, start_I, b_end_doc_idxs, b_end_idxs, end_I, b_start_scores, b_end_scores, start_unit, end_unit
 
     def search_phrase(self, query, start_doc_idxs, start_idxs, orig_start_idxs, end_doc_idxs, end_idxs, orig_end_idxs,
-            start_scores, end_scores, top_k=10, max_answer_length=10, return_idxs=False, return_sent=False):
+            start_scores, end_scores, start_unit, end_unit,
+            top_k=10, max_answer_length=10, return_idxs=False, return_sent=False):
 
         # Reshape for phrase
         num_queries = query.shape[0]
@@ -406,9 +452,10 @@ class MIPS(object):
             'start_idx': start_idx, 'end_idx': end_idx, 'score': score,
             'start_vec': start_vecs[group_idx] if return_idxs else None,
             'end_vec': end_vecs[group_idx] if return_idxs else None,
+            # 'unit': unit,
             } if doc_idx >= 0 else {
                 'score': -1e8, 'context': 'dummy', 'start_pos': 0, 'end_pos': 0, 'title': ['']}
-            for group_idx, (doc_idx, start_idx, end_idx, score) in enumerate(zip(
+            for group_idx, (doc_idx, start_idx, end_idx, score, unit) in enumerate(zip(
                 doc_idxs.tolist(), start_idxs.tolist(), end_idxs.tolist(), max_scores.tolist()))
         ]
 
@@ -463,8 +510,9 @@ class MIPS(object):
 
         # MIPS on start/end
         start_time = time()
-        start_doc_idxs, start_idxs, start_I, end_doc_idxs, end_idxs, end_I, start_scores, end_scores = self.search_dense(
-            query, p_query, s_query,
+        start_doc_idxs, start_idxs, start_I, end_doc_idxs, end_idxs, end_I, start_scores, end_scores, start_unit, end_unit = self.search_dense(
+            p_query, 
+            s_query,
             q_texts=q_texts,
             nprobe=nprobe,
             top_k=top_k,
@@ -474,7 +522,8 @@ class MIPS(object):
         # Search phrase
         start_time = time()
         outs = self.search_phrase(
-            query, start_doc_idxs, start_idxs, start_I, end_doc_idxs, end_idxs, end_I, start_scores, end_scores,
+            p_query, s_query, start_doc_idxs, start_idxs, start_I, end_doc_idxs, end_idxs, end_I, start_scores, end_scores,
+            start_unit, end_unit,
             top_k=top_k, max_answer_length=max_answer_length, return_idxs=return_idxs, return_sent=return_sent
         )
         logger.debug(f'Top-{top_k} phrase search: {time()-start_time:.3f}s')

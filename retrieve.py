@@ -9,8 +9,8 @@ from tqdm import tqdm
 from densephrases import DensePhrases
 
 # fixed setting
-R_UNIT = 'sentence'
-TOP_K = 200
+R_UNIT = 'phrase'
+TOP_K = 10
 DUMP_DIR = 'DensePhrases/outputs/densephrases-multi_wiki-20181220/dump'
 RUNFILE_DIR = "runs"
 os.makedirs(RUNFILE_DIR, exist_ok=True)

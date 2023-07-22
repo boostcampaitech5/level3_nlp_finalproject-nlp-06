@@ -36,7 +36,6 @@ class DensePhrases(object):
         self.args = options.parse()
 
         # Set options
-        self.args.load_dir = load_dir
         self.args.p_load_dir = p_load_dir
         self.args.s_load_dir = s_load_dir
         self.args.dump_dir = dump_dir
@@ -46,7 +45,6 @@ class DensePhrases(object):
         self.args.__dict__.update(kwargs)
 
         # Load encoder
-        self.set_encoder(load_dir, device)
         self.set_p_encoder(p_load_dir, device)
         self.set_s_encoder(s_load_dir, device)
 
@@ -75,10 +73,10 @@ class DensePhrases(object):
         p_outs = self.p_query2vec(batch_query)
         s_outs = self.s_query2vec(batch_query)
         p_start = np.concatenate([out[0] for out in p_outs], 0)
-        p_end = np.concatenate([out[1] for out in p_outs], 0)
-        p_query_vec = np.concatenate([p_start, p_end], 1)
         s_start = np.concatenate([out[0] for out in s_outs], 0)
+        p_end = np.concatenate([out[1] for out in p_outs], 0)
         s_end = np.concatenate([out[1] for out in s_outs], 0)
+        p_query_vec = np.concatenate([p_start, p_end], 1)
         s_query_vec = np.concatenate([s_start, s_end], 1)
 
         # Search
@@ -86,8 +84,8 @@ class DensePhrases(object):
         if retrieval_unit not in agg_strats:
             raise NotImplementedError(f'"{retrieval_unit}" not supported. Choose one of {agg_strats.keys()}.')
         search_top_k = top_k
-        if retrieval_unit in ['sentence', 'paragraph', 'document']:
-            search_top_k *= 2
+        # if retrieval_unit in ['sentence', 'paragraph', 'document']:
+        #     search_top_k *= 2
         rets = self.mips.search(
             p_query_vec, s_query_vec, q_texts=batch_query, nprobe=256,
             top_k=search_top_k, max_answer_length=10,
@@ -117,19 +115,13 @@ class DensePhrases(object):
         else:
             return retrieved
 
-    def set_encoder(self, load_dir, device='cuda'):
-        self.args.load_dir = load_dir
-        self.model, self.tokenizer, self.config = load_encoder(device, self.args)
-        self.query2vec = get_query2vec(
-            query_encoder=self.model, tokenizer=self.tokenizer, args=self.args, batch_size=64
-        )
-    def p_set_encoder(self, load_dir, device='cuda'):
+    def set_p_encoder(self, load_dir, device='cuda'):
         self.args.load_dir = load_dir
         self.model, self.tokenizer, self.config = load_encoder(device, self.args)
         self.p_query2vec = get_query2vec(
             query_encoder=self.model, tokenizer=self.tokenizer, args=self.args, batch_size=64
         )
-    def s_set_encoder(self, load_dir, device='cuda'):
+    def set_s_encoder(self, load_dir, device='cuda'):
         self.args.load_dir = load_dir
         self.model, self.tokenizer, self.config = load_encoder(device, self.args)
         self.s_query2vec = get_query2vec(
