@@ -14,6 +14,7 @@ from tqdm import tqdm
 from spacy.lang.en import English
 from densephrases.utils.eval_utils import normalize_answer
 from collections import defaultdict
+from itertools import chain
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s', datefmt='%m/%d/%Y %H:%M:%S',
                     level=logging.INFO)
@@ -215,9 +216,7 @@ class MIPS(object):
             b_I = []
             dynamic_units = []
             for sample in range(batch_size):
-                scores = []
-                I = []
-                unit = []
+                cand = [] # candidates
                 tmp = defaultdict(dict)
                 inters = set(p_I[sample].tolist() + s_I[sample].tolist())
                 for k in range(len(p_I[sample])):
@@ -225,31 +224,28 @@ class MIPS(object):
                     k_idx = p_I[sample][k]
                     if k_idx in inters: tmp[k_idx]['phrase'] = k_score
                     else:
-                        scores.append(k_score)
-                        I.append(k_idx)
-                        unit.append('phrase')
+                        cand.append({'score':k_score, 'idx':k_idx, 'unit':'phrase'})
                 for k in range(len(s_I[sample])):
                     k_score = s_scores[sample][k]
                     k_idx = s_I[sample][k]
                     if k_idx in inters: tmp[k_idx]['sentence'] = k_score
                     else:
-                        scores.append(k_score)
-                        I.append(k_idx)
-                        unit.append('sentence')
+                        cand.append({'score':k_score, 'idx':k_idx, 'unit':'sentence'})
                 for idx, score in tmp.items():
-                    hi = sorted(score.items(), key= lambda x:-x[1])
-                    scores.append(hi[0][1])
-                    I.append(idx)
-                    unit.append(hi[0][0])
+                    hi = sorted(score.items(), key=lambda x:-x[1])
+                    cand.append({'score':hi[0][1], 'idx':idx, 'unit':hi[0][0]})
+                cand = sorted(cand, key=lambda x:-x['score'])[:top_k]
+                scores = []
+                I = []
+                unit = []
+                for i in cand:
+                    scores.append(i['score'])
+                    I.append(i['idx'])
+                    unit.append(i['unit'])
 
                 b_scores.append(np.array(scores))
                 b_I.append(np.array(I))
                 dynamic_units.append(unit)
-
-            # match shape for each sample
-            max_len = max(len(i) for i in b_I)
-            b_scores = [i.resize((max_len), refcheck=False) for i in b_scores]
-            b_I = [i.resize((max_len), refcheck=False) for i in b_I]
 
             return np.array(b_scores), np.array(b_I), dynamic_units
 
@@ -269,7 +265,14 @@ class MIPS(object):
         self.num_docs_list.append(num_docs)
         logger.debug(f'2) {time()-start_time:.3f}s: get index')
 
-        return b_start_doc_idxs, b_start_idxs, start_I, b_end_doc_idxs, b_end_idxs, end_I, b_start_scores, b_end_scores, start_unit, end_unit
+        # merge p_query and s_query
+        query_start = [p_query_start[i] if unit=='phrase' else s_query_start[i] 
+                    for i, unit in enumerate(start_unit)]
+        query_end = [p_query_end[i] if unit=='phrase' else s_query_end[i] 
+                    for i, unit in enumerate(end_unit)]
+        query = np.concatenate((np.array(query_start), np.array(query_end)), axis=1)
+
+        return query, b_start_doc_idxs, b_start_idxs, start_I, b_end_doc_idxs, b_end_idxs, end_I, b_start_scores, b_end_scores, start_unit, end_unit
 
     def search_phrase(self, query, start_doc_idxs, start_idxs, orig_start_idxs, end_doc_idxs, end_idxs, orig_end_idxs,
             start_scores, end_scores, start_unit, end_unit,
@@ -279,7 +282,8 @@ class MIPS(object):
         num_queries = query.shape[0]
         query = np.reshape(np.tile(np.expand_dims(query, 1), [1, top_k, 1]), [-1, query.shape[1]])
         q_idxs = np.reshape(np.tile(np.expand_dims(np.arange(num_queries), 1), [1, top_k*2]), [-1])
-        start_doc_idxs = np.reshape(start_doc_idxs, [-1])
+        
+        start_doc_idxs = np.reshape(start_doc_idxs, [-1]) # flatten
         start_idxs = np.reshape(start_idxs, [-1])
         end_doc_idxs = np.reshape(end_doc_idxs, [-1])
         end_idxs = np.reshape(end_idxs, [-1])
@@ -334,7 +338,7 @@ class MIPS(object):
                 for doc_idx in set(start_doc_idxs.tolist() + end_doc_idxs.tolist()) if doc_idx >= 0
             }
             groups_start = []
-            for doc_idx, start_idx in zip(start_doc_idxs, orig_start_idxs):
+            for doc_idx, start_idx, unit in zip(start_doc_idxs, orig_start_idxs, start_unit):
                 reconsts = []
                 for ii in range(start_idx, start_idx+max_answer_length):
                     try:
@@ -342,9 +346,9 @@ class MIPS(object):
                     except:
                         reconst = np.zeros(bs)
                     reconsts.append(reconst)
-                groups_start.append({'end': np.array(reconsts)})
+                groups_start.append({'end': np.array(reconsts), 'unit':unit})
             groups_end = []
-            for doc_idx, end_idx in zip(end_doc_idxs, orig_end_idxs):
+            for doc_idx, end_idx, unit in zip(end_doc_idxs, orig_end_idxs, end_unit):
                 reconsts = []
                 for ii in range(end_idx-max_answer_length+1, end_idx+1):
                     try:
@@ -352,7 +356,7 @@ class MIPS(object):
                     except:
                         reconst = np.zeros(bs)
                     reconsts.append(reconst)
-                groups_end.append({'start': np.array(reconsts)})
+                groups_end.append({'start': np.array(reconsts), 'unit':unit})
                 
             self.dequant = lambda offset, scale, x: x # no need for dequantization when using reconstruct()
         logger.debug(f'1) {time()-start_time:.3f}s: reconstruct vecs')
@@ -377,21 +381,22 @@ class MIPS(object):
 
         # Find end for start_idxs
         start_time = time()
-        ends = [group_start['end'] for start_idx, group_start in zip(start_idxs, groups_start)]
+        ends = [{'end':group_start['end'], 'unit':group_start['unit']} for start_idx, group_start in zip(start_idxs, groups_start)]
         new_end_idxs = [[
-            start_idx+i
+            start_idx+i # end idx
             if valid_phrase(start_idx, start_idx+i, doc_idx, max_answer_length) else -1 for i in range(max_answer_length)
             ] for start_idx, doc_idx in zip(start_idxs, start_doc_idxs)
         ]
         end_mask = -1e9 * (np.array(new_end_idxs) < 0)  # [Q, L]
         end = np.zeros((query.shape[0], max_answer_length, default_vec.shape[0]), dtype=np.float32)
         for end_idx, each_end in enumerate(ends):
+            each_end = each_end['end']
             end[end_idx, :each_end.shape[0], :] = self.dequant(
                 float(groups_all[default_doc]['offset']), float(groups_all[default_doc]['scale']), each_end
             )
-
+     
         with torch.no_grad():
-            end = torch.FloatTensor(end).to(self.device)
+            end = torch.FloatTensor(end).to(self.device) # 1280 * 10 * 768
             end = end.matmul(self.R) # for OPQ
             query_end = torch.FloatTensor(query_end).to(self.device)
             new_end_scores = (query_end.unsqueeze(1) * end).sum(2).cpu().numpy()
@@ -402,7 +407,7 @@ class MIPS(object):
 
         # Find start fot end_idxs
         start_time = time()
-        starts = [group_end['start'] for end_idx, group_end in zip(end_idxs, groups_end)]
+        starts = [{'start':group_end['start'], 'unit':group_end['unit']} for end_idx, group_end in zip(end_idxs, groups_end)]
         new_start_idxs = [[
             end_idx-i
             if valid_phrase(end_idx-i, end_idx, doc_idx, max_answer_length) else -1 for i in range(max_answer_length-1,-1,-1)
@@ -411,6 +416,7 @@ class MIPS(object):
         start_mask = -1e9 * (np.array(new_start_idxs) < 0)  # [Q, L]
         start = np.zeros((query.shape[0], max_answer_length, default_vec.shape[0]), dtype=np.float32)
         for start_idx, each_start in enumerate(starts):
+            each_start = each_start['start']
             start[start_idx, -each_start.shape[0]:, :] = self.dequant(
                 float(groups_all[default_doc]['offset']), float(groups_all[default_doc]['scale']), each_start
             )
@@ -424,13 +430,14 @@ class MIPS(object):
         pred_start_idxs = np.stack([each[idx] for each, idx in zip(new_start_idxs, np.argmax(scores2, 1))], 0)  # [Q]
         pred_start_vecs = np.stack([each[idx] for each, idx in zip(start.cpu().numpy(), np.argmax(scores2, 1))], 0)
         logger.debug(f'3) {time()-start_time:.3f}s: find start')
-
+  
         # Get start/end idxs of phrases
         start_time = time()
         doc_idxs = np.concatenate((np.expand_dims(start_doc_idxs, 1), np.expand_dims(end_doc_idxs, 1)), axis=1).flatten()
         start_idxs = np.concatenate((np.expand_dims(start_idxs, 1), np.expand_dims(pred_start_idxs, 1)), axis=1).flatten()
         end_idxs = np.concatenate((np.expand_dims(pred_end_idxs, 1), np.expand_dims(end_idxs, 1)), axis=1).flatten()
         max_scores = np.concatenate((np.max(scores1, 1, keepdims=True), np.max(scores2, 1, keepdims=True)), axis=1).flatten()
+        units = list(chain(*start_unit))+list(chain(*end_unit))
 
         # Prepare for reconstructed vectors for query-side fine-tuning
         if return_idxs:
@@ -452,11 +459,11 @@ class MIPS(object):
             'start_idx': start_idx, 'end_idx': end_idx, 'score': score,
             'start_vec': start_vecs[group_idx] if return_idxs else None,
             'end_vec': end_vecs[group_idx] if return_idxs else None,
-            # 'unit': unit,
+            'unit': unit,
             } if doc_idx >= 0 else {
                 'score': -1e8, 'context': 'dummy', 'start_pos': 0, 'end_pos': 0, 'title': ['']}
             for group_idx, (doc_idx, start_idx, end_idx, score, unit) in enumerate(zip(
-                doc_idxs.tolist(), start_idxs.tolist(), end_idxs.tolist(), max_scores.tolist()))
+                doc_idxs.tolist(), start_idxs.tolist(), end_idxs.tolist(), max_scores.tolist(), units))
         ]
 
         for each in out:
@@ -481,7 +488,11 @@ class MIPS(object):
         out = []
         doc_ans = {}
         for r_idx, result in enumerate(results):
-            if agg_strat == 'opt1': # standard deduplication for phrase retrieval
+            if agg_strat == 'opt0': # for dynamic retrieval
+                if result['unit'] == 'phrase': 
+                    da = f'{result["title"]}_{result["start_pos"]}_{result["end_pos"]}'
+                else : da = f'{result["context"]}'
+            elif agg_strat == 'opt1': # standard deduplication for phrase retrieval
                 da = f'{result["title"]}_{result["start_pos"]}_{result["end_pos"]}'
             elif agg_strat == 'opt2': # for sentence/passage retrieval
                 da = f'{result["context"]}'
@@ -510,7 +521,7 @@ class MIPS(object):
 
         # MIPS on start/end
         start_time = time()
-        start_doc_idxs, start_idxs, start_I, end_doc_idxs, end_idxs, end_I, start_scores, end_scores, start_unit, end_unit = self.search_dense(
+        query, start_doc_idxs, start_idxs, start_I, end_doc_idxs, end_idxs, end_I, start_scores, end_scores, start_unit, end_unit = self.search_dense(
             p_query, 
             s_query,
             q_texts=q_texts,
@@ -522,8 +533,8 @@ class MIPS(object):
         # Search phrase
         start_time = time()
         outs = self.search_phrase(
-            p_query, s_query, start_doc_idxs, start_idxs, start_I, end_doc_idxs, end_idxs, end_I, start_scores, end_scores,
-            start_unit, end_unit,
+            query, start_doc_idxs, start_idxs, start_I, end_doc_idxs, end_idxs, end_I, start_scores, end_scores,
+            start_unit=start_unit, end_unit=end_unit,
             top_k=top_k, max_answer_length=max_answer_length, return_idxs=return_idxs, return_sent=return_sent
         )
         logger.debug(f'Top-{top_k} phrase search: {time()-start_time:.3f}s')

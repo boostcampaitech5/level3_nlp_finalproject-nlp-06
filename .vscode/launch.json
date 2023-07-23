@@ -1,0 +1,23 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Current File",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": [
+                "--batch_size", "128",
+                "--index_name", "start/1048576_flat_OPQ96_small",
+                "--runfile_name", "main.tsv",
+                "--query_encoder_phrase", "./DensePhrases/outputs/Lquery",
+                "--query_encoder_sentence", "./DensePhrases/outputs/Lcq"
+            ]
+        }
+    ]
+}

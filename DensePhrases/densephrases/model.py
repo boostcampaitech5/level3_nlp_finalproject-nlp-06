@@ -80,7 +80,7 @@ class DensePhrases(object):
         s_query_vec = np.concatenate([s_start, s_end], 1)
 
         # Search
-        agg_strats = {'phrase': 'opt1', 'sentence': 'opt2', 'paragraph': 'opt2', 'document': 'opt3'}
+        agg_strats = {'phrase': 'opt1', 'sentence': 'opt2', 'paragraph': 'opt2', 'document': 'opt3', 'dynamic':'opt0'}
         if retrieval_unit not in agg_strats:
             raise NotImplementedError(f'"{retrieval_unit}" not supported. Choose one of {agg_strats.keys()}.')
         search_top_k = top_k
@@ -103,6 +103,8 @@ class DensePhrases(object):
             retrieved = [[rr['context'] for rr in ret][:top_k] for ret in rets]
         elif retrieval_unit == 'document':
             retrieved = [[rr['title'][0] for rr in ret][:top_k] for ret in rets]
+        elif retrieval_unit == 'dynamic': # phrase and sentence
+            retrieved = [[rr['answer'] if rr['unit']=='phrase' else rr['context'] for rr in ret][:top_k] for ret in rets]
         else:
             raise NotImplementedError()
 

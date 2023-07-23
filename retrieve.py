@@ -9,7 +9,7 @@ from tqdm import tqdm
 from densephrases import DensePhrases
 
 # fixed setting
-R_UNIT = 'phrase'
+R_UNIT = 'dynamic'
 TOP_K = 10
 DUMP_DIR = 'DensePhrases/outputs/densephrases-multi_wiki-20181220/dump'
 RUNFILE_DIR = "runs"
