@@ -90,7 +90,7 @@ class DensePhrases(object):
             p_query_vec, s_query_vec, q_texts=batch_query, nprobe=256,
             top_k=search_top_k, max_answer_length=10,
             return_idxs=False, aggregate=True, agg_strat=agg_strats[retrieval_unit],
-            return_sent=True if retrieval_unit == 'sentence' else False
+            return_sent=True if retrieval_unit == 'sentence' or 'dynamic' else False
         )
 
         # Gather results

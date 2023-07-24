@@ -9,8 +9,8 @@ from tqdm import tqdm
 from densephrases import DensePhrases
 
 # fixed setting
-R_UNIT = 'dynamic'
-TOP_K = 10
+# R_UNIT = 'dynamic'
+# TOP_K = 10
 DUMP_DIR = 'DensePhrases/outputs/densephrases-multi_wiki-20181220/dump'
 RUNFILE_DIR = "runs"
 os.makedirs(RUNFILE_DIR, exist_ok=True)
@@ -20,6 +20,8 @@ class Retriever():
     def __init__(self, args):
         self.args = args
         self.initialize_retriever()
+        self.R_UNIT = args.r_unit
+        self.TOP_K = args.top_k
 
     def initialize_retriever(self):
         # load model
@@ -52,7 +54,7 @@ class Retriever():
                 for batch_query in tqdm(queries_batch):
                     # retrieve
                     result, meta = self.model.search(
-                        batch_query, retrieval_unit=R_UNIT, top_k=TOP_K, return_meta=True)
+                        batch_query, retrieval_unit=self.R_UNIT, top_k=self.TOP_K, return_meta=True)
 
                     # write to runfile
                     for i in range(len(result)):
@@ -63,7 +65,7 @@ class Retriever():
 
         elif isinstance(single_query_or_queries_dict, str):  # online search
             result = self.model.search(
-                single_query_or_queries_dict, retrieval_unit=R_UNIT, top_k=TOP_K)
+                single_query_or_queries_dict, retrieval_unit=self.R_UNIT, top_k=self.TOP_K)
 
             return result
         else:
@@ -87,6 +89,9 @@ if __name__ == "__main__":
                         help="output runfile name which indluces query id and retrieved collection")
     parser.add_argument('--batch_size', type=int, default=1,
                         help="#query to process with parallel processing")
+    
+    parser.add_argument('--r_unit', type=str, default='sentence')
+    parser.add_argument('--top_k', type=int, default=100)
     
     parser.add_argument('--query_encoder_phrase', type=str, default=None,
                         help="custom query encoder checkpoint directory")

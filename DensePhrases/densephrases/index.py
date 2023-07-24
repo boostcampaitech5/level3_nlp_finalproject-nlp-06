@@ -177,6 +177,7 @@ class MIPS(object):
         return each
 
     def adjust_sent(self, each):
+        if each['unit'] == 'phrase': return each
         sents = [(X.text, X[0].idx) for X in self.sentencizer(each['context']).sents]
         sent_idxs = sorted(set(
             [sum(np.array([st[1] for st in sents]) <= each['start_pos']) - 1] +
@@ -204,7 +205,7 @@ class MIPS(object):
         # Search with faiss
         p_scores, p_I = self.index.search(p_query_concat, top_k)
         s_scores, s_I = self.index.search(s_query_concat, top_k*2)
-
+              
         p_start_scores, p_start_I = p_scores[:batch_size,:], p_I[:batch_size,:]
         s_start_scores, s_start_I = s_scores[:batch_size,:], s_I[:batch_size,:]
         p_end_scores, p_end_I = p_scores[batch_size:,:], p_I[batch_size:,:]
