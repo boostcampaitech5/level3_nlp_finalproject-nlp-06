@@ -67,7 +67,7 @@ class DensePhrases(object):
 
         # Pre-processing
         if truecase:
-            query = [self.truecase.get_true_case(query) if query == query.lower() else query for query in batch_query]
+            batch_query = [self.truecase.get_true_case(query) if query == query.lower() else query for query in batch_query]
 
         # Get question vector
         p_outs = self.p_query2vec(batch_query)
@@ -84,8 +84,8 @@ class DensePhrases(object):
         if retrieval_unit not in agg_strats:
             raise NotImplementedError(f'"{retrieval_unit}" not supported. Choose one of {agg_strats.keys()}.')
         search_top_k = top_k
-        # if retrieval_unit in ['sentence', 'paragraph', 'document']:
-        #     search_top_k *= 2
+        if retrieval_unit in ['sentence', 'paragraph', 'document']:
+            search_top_k *= 2
         rets = self.mips.search(
             p_query_vec, s_query_vec, q_texts=batch_query, nprobe=256,
             top_k=search_top_k, max_answer_length=10,

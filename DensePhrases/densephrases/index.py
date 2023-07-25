@@ -135,6 +135,7 @@ class MIPS(object):
         
         offsets = (I / max_idx).astype(np.int64) * int(max_idx)
         idxs = I % int(max_idx)
+        
         doc = np.array(
             [[self.idx_f[str(offset)]['doc'][idx] for offset, idx in zip(oo, ii)] for oo, ii in zip(offsets, idxs)])
         word = np.array([[self.idx_f[str(offset)]['word'][idx] for offset, idx in zip(oo, ii)] for oo, ii in
@@ -213,13 +214,15 @@ class MIPS(object):
         logger.debug(f'1) {time()-start_time:.3f}s: MIPS')
 
         def dynamic_unit(p_scores, p_I, s_scores, s_I):
-            b_scores = []
-            b_I = []
+            b_scores = np.empty((0,top_k))
+            b_I = np.empty((0,top_k))
             dynamic_units = []
+            chk_inters = []
             for sample in range(batch_size):
                 cand = [] # candidates
                 tmp = defaultdict(dict)
-                inters = set(p_I[sample].tolist() + s_I[sample].tolist())
+                inters = set(p_I[sample].tolist() + s_I[sample].tolist()) # intersection of searched index for each query vector
+                chk_inters.append(len(inters))
                 for k in range(len(p_I[sample])):
                     k_score = p_scores[sample][k]
                     k_idx = p_I[sample][k]
@@ -232,23 +235,24 @@ class MIPS(object):
                     if k_idx in inters: tmp[k_idx]['sentence'] = k_score
                     else:
                         cand.append({'score':k_score, 'idx':k_idx, 'unit':'sentence'})
-                for idx, score in tmp.items():
+                for idx, score in tmp.items(): # for those in intersection
                     hi = sorted(score.items(), key=lambda x:-x[1])
                     cand.append({'score':hi[0][1], 'idx':idx, 'unit':hi[0][0]})
                 cand = sorted(cand, key=lambda x:-x['score'])[:top_k]
-                scores = []
-                I = []
-                unit = []
+
+                scores = np.array([])
+                b_i = np.array([])
+                units = []
                 for i in cand:
-                    scores.append(i['score'])
-                    I.append(i['idx'])
-                    unit.append(i['unit'])
+                    scores = np.append(scores, i['score'])
+                    b_i = np.append(b_i, i['idx'])
+                    units.append(i['unit'])
+                b_scores = np.vstack([b_scores, scores])
+                b_I = np.vstack([b_I, b_i])
+                dynamic_units.append(units)
 
-                b_scores.append(np.array(scores))
-                b_I.append(np.array(I))
-                dynamic_units.append(unit)
-
-            return np.array(b_scores), np.array(b_I), dynamic_units
+            b_I = b_I.astype(np.int64)
+            return b_scores, b_I, dynamic_units
 
         b_start_scores, start_I, start_unit = dynamic_unit(p_start_scores, p_start_I, s_start_scores, s_start_I)
         b_end_scores, end_I, end_unit = dynamic_unit(p_end_scores, p_end_I, s_end_scores, s_end_I)
@@ -266,24 +270,26 @@ class MIPS(object):
         self.num_docs_list.append(num_docs)
         logger.debug(f'2) {time()-start_time:.3f}s: get index')
 
-        # merge p_query and s_query
-        query_start = [p_query_start[i] if unit=='phrase' else s_query_start[i] 
-                    for i, unit in enumerate(start_unit)]
-        query_end = [p_query_end[i] if unit=='phrase' else s_query_end[i] 
-                    for i, unit in enumerate(end_unit)]
-        query = np.concatenate((np.array(query_start), np.array(query_end)), axis=1)
+        return p_query, s_query, b_start_doc_idxs, b_start_idxs, start_I, b_end_doc_idxs, b_end_idxs, end_I, b_start_scores, b_end_scores, start_unit, end_unit
 
-        return query, b_start_doc_idxs, b_start_idxs, start_I, b_end_doc_idxs, b_end_idxs, end_I, b_start_scores, b_end_scores, start_unit, end_unit
-
-    def search_phrase(self, query, start_doc_idxs, start_idxs, orig_start_idxs, end_doc_idxs, end_idxs, orig_end_idxs,
+    def search_phrase(self, p_query, s_query, start_doc_idxs, start_idxs, orig_start_idxs, end_doc_idxs, end_idxs, orig_end_idxs,
             start_scores, end_scores, start_unit, end_unit,
             top_k=10, max_answer_length=10, return_idxs=False, return_sent=False):
 
         # Reshape for phrase
-        num_queries = query.shape[0]
-        query = np.reshape(np.tile(np.expand_dims(query, 1), [1, top_k, 1]), [-1, query.shape[1]])
+        num_queries = p_query.shape[0]
         q_idxs = np.reshape(np.tile(np.expand_dims(np.arange(num_queries), 1), [1, top_k*2]), [-1])
         
+        # merge p_query, s_query into query
+        dim = p_query.shape[1]
+        p_query_start, p_query_end = np.split(p_query, 2, axis=1)
+        s_query_start, s_query_end = np.split(s_query, 2, axis=1)
+        query_start = np.array([[p_query_start[q_idx] if unit=='phrase' else s_query_start[q_idx]
+            for k, unit in enumerate(units)] for q_idx, units in enumerate(start_unit)])
+        query_end = np.array([[p_query_end[q_idx] if unit=='phrase' else s_query_end[q_idx]
+            for k, unit in enumerate(units)] for q_idx, units in enumerate(end_unit)])
+        query = np.reshape(np.concatenate((query_start, query_end), axis=1), [-1, dim])
+
         start_doc_idxs = np.reshape(start_doc_idxs, [-1]) # flatten
         start_idxs = np.reshape(start_idxs, [-1])
         end_doc_idxs = np.reshape(end_doc_idxs, [-1])
@@ -388,19 +394,20 @@ class MIPS(object):
             if valid_phrase(start_idx, start_idx+i, doc_idx, max_answer_length) else -1 for i in range(max_answer_length)
             ] for start_idx, doc_idx in zip(start_idxs, start_doc_idxs)
         ]
-        end_mask = -1e9 * (np.array(new_end_idxs) < 0)  # [Q, L]
-        end = np.zeros((query.shape[0], max_answer_length, default_vec.shape[0]), dtype=np.float32)
+        end_mask = -1e9 * (np.array(new_end_idxs) < 0)  # [Q, L] (1280, 10)
+        end = np.zeros((query.shape[0], max_answer_length, default_vec.shape[0]), dtype=np.float32) # (1280=128*k, 10=max_ans_len, 768=d)
         for end_idx, each_end in enumerate(ends):
             each_end = each_end['end']
-            end[end_idx, :each_end.shape[0], :] = self.dequant(
+            end[end_idx, :each_end.shape[0], :] = self.dequant( # each_end.shape[0] = max_ans_len
                 float(groups_all[default_doc]['offset']), float(groups_all[default_doc]['scale']), each_end
             )
      
         with torch.no_grad():
             end = torch.FloatTensor(end).to(self.device) # 1280 * 10 * 768
             end = end.matmul(self.R) # for OPQ
-            query_end = torch.FloatTensor(query_end).to(self.device)
+            query_end = torch.FloatTensor(query_end).to(self.device) # 128 * 768
             new_end_scores = (query_end.unsqueeze(1) * end).sum(2).cpu().numpy()
+            # TODO : scaling
         scores1 = np.expand_dims(start_scores, 1) + new_end_scores + end_mask  # [Q, L]
         pred_end_idxs = np.stack([each[idx] for each, idx in zip(new_end_idxs, np.argmax(scores1, 1))], 0)  # [Q]
         pred_end_vecs = np.stack([each[idx] for each, idx in zip(end.cpu().numpy(), np.argmax(scores1, 1))], 0)
@@ -522,7 +529,7 @@ class MIPS(object):
 
         # MIPS on start/end
         start_time = time()
-        query, start_doc_idxs, start_idxs, start_I, end_doc_idxs, end_idxs, end_I, start_scores, end_scores, start_unit, end_unit = self.search_dense(
+        p_query, s_query, start_doc_idxs, start_idxs, start_I, end_doc_idxs, end_idxs, end_I, start_scores, end_scores, start_unit, end_unit = self.search_dense(
             p_query, 
             s_query,
             q_texts=q_texts,
@@ -534,7 +541,7 @@ class MIPS(object):
         # Search phrase
         start_time = time()
         outs = self.search_phrase(
-            query, start_doc_idxs, start_idxs, start_I, end_doc_idxs, end_idxs, end_I, start_scores, end_scores,
+            p_query, s_query, start_doc_idxs, start_idxs, start_I, end_doc_idxs, end_idxs, end_I, start_scores, end_scores,
             start_unit=start_unit, end_unit=end_unit,
             top_k=top_k, max_answer_length=max_answer_length, return_idxs=return_idxs, return_sent=return_sent
         )
