@@ -44,6 +44,7 @@ def load_phrase_index(args, ignore_logging=False):
 
 
 def load_cross_encoder(device, args):
+
     # Configure paths for cross-encoder serving
     cross_encoder = torch.load(
         os.path.join(args.load_dir, "pytorch_model.bin"), map_location=torch.device('cpu')
@@ -131,7 +132,7 @@ def load_qa_pairs(data_path, args, q_idx=None, draft_num_examples=100, shuffle=F
         titles.append(title)
         sentences.append(sentence)
         contexts.append(context)
-        
+    
     questions = [query[:-1] if query.endswith('?') else query for query in questions]
     # questions = [query.lower() for query in questions] # force lower query
 

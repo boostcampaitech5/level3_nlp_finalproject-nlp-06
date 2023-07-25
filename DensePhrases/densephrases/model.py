@@ -106,7 +106,7 @@ class DensePhrases(object):
         if return_meta:
             return retrieved, rets
         else:
-            return retrieved
+            return retrieved, rets
 
     def set_encoder(self, load_dir, device='cuda'):
         self.args.load_dir = load_dir

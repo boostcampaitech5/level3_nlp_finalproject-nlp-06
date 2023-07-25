@@ -35,7 +35,7 @@ large-index-sq:
 
 # Dataset paths
 nq-open-data:
-	$(eval TRAIN_DATA=open-qa/nq-open/train_preprocessed.json)
+	$(eval TRAIN_DATA=open-qa/nq-open/processed_sq_train_wc.json)
 	$(eval DEV_DATA=open-qa/nq-open/dev_preprocessed.json)
 	$(eval TEST_DATA=open-qa/nq-open/test_preprocessed.json)
 	$(eval OPTIONS=--truecase)
@@ -58,7 +58,7 @@ train-query: dump-dir model-name nq-open-data large-index
 		--per_gpu_train_batch_size 12 \
 		--eval_batch_size 12 \
 		--learning_rate 3e-5 \
-		--num_train_epochs 5 \
+		--num_train_epochs 3 \
 		--dump_dir $(DUMP_DIR) \
 		--index_name start/$(NUM_CLUSTERS)_flat_$(INDEX_TYPE)_small \
 		--load_dir $(LOAD_DIR_OR_PRETRAINED_HF_NAME) \
@@ -66,5 +66,5 @@ train-query: dump-dir model-name nq-open-data large-index
 		--top_k 100 \
 		--cuda \
 		--save_pred \
-		--label_strat phrase \
+		--label_strat phrase,context \
 		$(OPTIONS)

@@ -298,7 +298,7 @@ class MIPS(object):
                         reconst = np.zeros(bs)
                     reconsts.append(reconst)
                 groups_end.append({'start': np.array(reconsts)})
-                
+
             self.dequant = lambda offset, scale, x: x # no need for dequantization when using reconstruct()
         logger.debug(f'1) {time()-start_time:.3f}s: reconstruct vecs')
 
@@ -334,7 +334,7 @@ class MIPS(object):
             end[end_idx, :each_end.shape[0], :] = self.dequant(
                 float(groups_all[default_doc]['offset']), float(groups_all[default_doc]['scale']), each_end
             )
-
+            
         with torch.no_grad():
             end = torch.FloatTensor(end).to(self.device)
             end = end.matmul(self.R) # for OPQ
@@ -345,7 +345,7 @@ class MIPS(object):
         pred_end_vecs = np.stack([each[idx] for each, idx in zip(end.cpu().numpy(), np.argmax(scores1, 1))], 0)
         logger.debug(f'2) {time()-start_time:.3f}s: find end')
 
-        # Find start fot end_idxs
+        # Find start for end_idxs
         start_time = time()
         starts = [group_end['start'] for end_idx, group_end in zip(end_idxs, groups_end)]
         new_start_idxs = [[
@@ -368,7 +368,7 @@ class MIPS(object):
         scores2 = new_start_scores + np.expand_dims(end_scores, 1) + start_mask  # [Q, L]
         pred_start_idxs = np.stack([each[idx] for each, idx in zip(new_start_idxs, np.argmax(scores2, 1))], 0)  # [Q]
         pred_start_vecs = np.stack([each[idx] for each, idx in zip(start.cpu().numpy(), np.argmax(scores2, 1))], 0)
-        logger.debug(f'3) {time()-start_time:.3f}s: find start')
+        logger.debug(f'3) {time()-start_time:. 3f}s: find start')
 
         # Get start/end idxs of phrases
         start_time = time()
@@ -383,11 +383,12 @@ class MIPS(object):
                 (np.expand_dims(np.stack([group_start['end'][0] for group_start in groups_start]), 1),
                  np.expand_dims(pred_start_vecs, 1)), axis=1
             ).reshape(-1, pred_start_vecs.shape[-1]).dot(self.R.cpu().numpy())
+            
             end_vecs = np.concatenate(
                 (np.expand_dims(pred_end_vecs, 1),
                  np.expand_dims(np.stack([group_end['start'][-1] for group_end in groups_end]), 1)), axis=1
             ).reshape(-1, pred_end_vecs.shape[-1]).dot(self.R.cpu().numpy())
-
+            
         out = [{
             'context': groups_all[doc_idx]['context'], 'title': [groups_all[doc_idx]['title']], 'doc_idx': doc_idx,
             'start_pos': groups_all[doc_idx]['word2char_start'][groups_all[doc_idx]['f2o_start'][start_idx]].item(),

@@ -87,25 +87,28 @@ def train_query_encoder(args, mips=None):
         total_accs_k = []
 
         # Load training dataset
+        
         q_ids, questions, answers, titles, sentences, contexts = load_qa_pairs(args.train_path, args, shuffle=True)
         pbar = tqdm(get_top_phrases(
             mips, q_ids, questions, answers, titles, sentences, contexts, pretrained_encoder, tokenizer,
             args.per_gpu_train_batch_size, args)
         )
-
+        
         for step_idx, (q_ids, questions, answers, titles, sentences, contexts, outs) in enumerate(pbar):
             train_dataloader, _, _ = get_question_dataloader(
                 questions, tokenizer, args.max_query_length, batch_size=args.per_gpu_train_batch_size
             )
-            svs, evs, tgts, c_tgts = annotate_phrase_vecs(mips, q_ids, questions, answers, titles, sentences, contexts, outs, args)
+            svs, evs, tgts, p_tgts = annotate_phrase_vecs(mips, q_ids, questions, answers, titles,sentences, contexts, outs, args)
 
             target_encoder.train()
             svs_t = torch.Tensor(svs).to(device)
             evs_t = torch.Tensor(evs).to(device)
             tgts_t = [torch.Tensor([tgt_ for tgt_ in tgt if tgt_ is not None]).to(device) for tgt in tgts]
-            c_tgts_t = [torch.Tensor([tgt_ for tgt_ in tgt if tgt_ is not None]).to(device) for tgt in p_tgts]
+            p_tgts_t = [torch.Tensor([tgt_ for tgt_ in tgt if tgt_ is not None]).to(device) for tgt in p_tgts]
 
+            # Train query encoder
             assert len(train_dataloader) == 1
+            
             
             for batch in train_dataloader:
                 batch = tuple(t.to(device) for t in batch)
@@ -114,7 +117,7 @@ def train_query_encoder(args, mips=None):
                     start_vecs=svs_t,
                     end_vecs=evs_t,
                     targets=tgts_t,
-                    c_targets=c_tgts_t,
+                    p_targets=p_tgts_t,
                 )
 
                 
@@ -194,7 +197,7 @@ def get_top_phrases(mips, q_ids, questions, answers, titles, sentences, contexts
         start = np.concatenate([out[0] for out in outs], 0)
         end = np.concatenate([out[1] for out in outs], 0)
         query_vec = np.concatenate([start, end], 1)
-
+        
         outs = search_fn(
             query_vec,
             q_texts=questions[q_idx:q_idx+step], nprobe=args.nprobe,
@@ -208,18 +211,16 @@ def get_top_phrases(mips, q_ids, questions, answers, titles, sentences, contexts
             outs
         )
 
-
 def annotate_phrase_vecs(mips, q_ids, questions, answers, titles, sentences, contexts, phrase_groups, args):
     assert mips is not None
     batch_size = len(answers)
-    
+
     # Phrase groups are in size of [batch, top_k, values]
     # phrase_groups = [[(
     #     out_['doc_idx'], out_['start_idx'], out_['end_idx'], out_['answer'],
     #     out_['start_vec'], out_['end_vec'], out_['context'], out_['title'])
     #     for out_ in out] for out in outs
     # ]
-    
     
     dummy_group = {
         'doc_idx': -1,
@@ -241,10 +242,10 @@ def annotate_phrase_vecs(mips, q_ids, questions, answers, titles, sentences, con
     # Flatten phrase groups
     flat_phrase_groups = [phrase for phrase_group in phrase_groups for phrase in phrase_group]
     doc_idxs = [int(phrase_group['doc_idx']) for phrase_group in flat_phrase_groups]
+
     start_vecs = [phrase_group['start_vec'] for phrase_group in flat_phrase_groups]
     end_vecs = [phrase_group['end_vec'] for phrase_group in flat_phrase_groups]
     
-    # stack vectors
     start_vecs = np.stack(start_vecs)
     end_vecs = np.stack(end_vecs)
     
@@ -257,18 +258,15 @@ def annotate_phrase_vecs(mips, q_ids, questions, answers, titles, sentences, con
     end_vecs = np.reshape(end_vecs, (batch_size, args.top_k*2, -1))
 
     # Dummy targets
-    
     targets = [[None for phrase in phrase_group] for phrase_group in phrase_groups]
-    c_targets = [[None for phrase in phrase_group] for phrase_group in phrase_groups]
+    p_targets = [[None for phrase in phrase_group] for phrase_group in phrase_groups]
 
-    # TODO: implement dynamic label_strategy based on the task name (label_strat = dynamic)
 
     # Annotate for L_phrase
     if 'phrase' in args.label_strat.split(','):
         match_fns = [
             drqa_regex_match_score if args.regex or ('trec' in q_id.lower()) else drqa_exact_match_score for q_id in q_ids
         ]
-        
         targets = [
             [drqa_metric_max_over_ground_truths(match_fn, phrase['answer'], answer_set) for phrase in phrase_group]
             for phrase_group, answer_set, match_fn in zip(phrase_groups, answers, match_fns)
@@ -276,18 +274,16 @@ def annotate_phrase_vecs(mips, q_ids, questions, answers, titles, sentences, con
         
         targets = [[ii if val else None for ii, val in enumerate(target)] for target in targets]
 
-
     if 'context' in args.label_strat.split(','):
-                
-        c_targets = [
+        p_targets = [
             [context[1:] in phrase['context'] for phrase in phrase_group]
             for phrase_group, context in zip(phrase_groups, contexts)
         ]
         
-        c_targets = [[ii if val else None for ii, val in enumerate(target)] for target in c_targets]    
+        p_targets = [[ii if val else None for ii, val in enumerate(target)] for target in p_targets]
 
 
-    return start_vecs, end_vecs, targets, c_targets
+    return start_vecs, end_vecs, targets, p_targets
 
 
 if __name__ == '__main__':
@@ -300,6 +296,7 @@ if __name__ == '__main__':
     options.add_qsft_options()
     args = options.parse()
 
+    
     # Seed for reproducibility
     random.seed(args.seed)
     np.random.seed(args.seed)
