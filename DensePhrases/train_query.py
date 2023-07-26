@@ -138,8 +138,12 @@ def train_query_encoder(args, mips=None):
                         with amp.scale_loss(loss_context, optimizer) as scaled_loss:
                             scaled_loss.backward()
                     else:
-                        loss_phrase.backward(retain_graph=True)
-                        loss_context.backward()
+                        if loss_phrase != 0.0 and loss_context != 0.0:
+                            loss_phrase.backward(retain_graph=True)
+                            loss_context.backward()
+                        else:
+                            loss_phrase.backward()
+                            loss_context = torch.tensor(loss_context)
 
                     total_loss_phrase += loss_phrase.mean().item()
                     total_loss_context += loss_context.mean().item()
