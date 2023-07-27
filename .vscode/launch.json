@@ -12,6 +12,8 @@
             "console": "integratedTerminal",
             "justMyCode": true,
             "args": [
+                "--top_k", "20",
+                "--r_unit", "dynamic",
                 "--batch_size", "128",
                 "--index_name", "start/1048576_flat_OPQ96_small",
                 "--runfile_name", "main.tsv",

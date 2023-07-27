@@ -214,15 +214,15 @@ class MIPS(object):
         logger.debug(f'1) {time()-start_time:.3f}s: MIPS')
 
         def dynamic_unit(p_scores, p_I, s_scores, s_I):
-            b_scores = np.empty((0,top_k))
-            b_I = np.empty((0,top_k))
+            b_scores = np.empty((0,top_k*3))
+            b_I = np.empty((0,top_k*3))
             dynamic_units = []
-            chk_inters = []
+            # chk_inters = []
             for sample in range(batch_size):
                 cand = [] # candidates
                 tmp = defaultdict(dict)
-                inters = set(p_I[sample].tolist() + s_I[sample].tolist()) # intersection of searched index for each query vector
-                chk_inters.append(len(inters))
+                inters = set(p_I[sample].tolist()) & set(s_I[sample].tolist()) # intersection of searched index for each query vector
+                # chk_inters.append(len(inters))
                 for k in range(len(p_I[sample])):
                     k_score = p_scores[sample][k]
                     k_idx = p_I[sample][k]
@@ -237,8 +237,8 @@ class MIPS(object):
                         cand.append({'score':k_score, 'idx':k_idx, 'unit':'sentence'})
                 for idx, score in tmp.items(): # for those in intersection
                     hi = sorted(score.items(), key=lambda x:-x[1])
-                    cand.append({'score':hi[0][1], 'idx':idx, 'unit':hi[0][0]})
-                cand = sorted(cand, key=lambda x:-x['score'])[:top_k]
+                    cand.append({'score':hi[0][1], 'idx':idx, 'unit':'sentence'}) # sentence for idx in intersection
+                cand = sorted(cand, key=lambda x:-x['score'])
 
                 scores = np.array([])
                 b_i = np.array([])
@@ -247,6 +247,13 @@ class MIPS(object):
                     scores = np.append(scores, i['score'])
                     b_i = np.append(b_i, i['idx'])
                     units.append(i['unit'])
+
+                # pad for different intersection size
+                pad_size = len(inters)
+                scores = np.pad(scores, pad_width=(0, pad_size), mode='constant', constant_values=1)
+                b_i = np.pad(b_i, pad_width=(0, pad_size), mode='constant', constant_values=1)
+                for i in range(pad_size): units.append('phrase')
+
                 b_scores = np.vstack([b_scores, scores])
                 b_I = np.vstack([b_I, b_i])
                 dynamic_units.append(units)
@@ -278,6 +285,7 @@ class MIPS(object):
 
         # Reshape for phrase
         num_queries = p_query.shape[0]
+        top_k *= 3
         q_idxs = np.reshape(np.tile(np.expand_dims(np.arange(num_queries), 1), [1, top_k*2]), [-1])
         
         # merge p_query, s_query into query
@@ -552,8 +560,8 @@ class MIPS(object):
             outs = [
                 self.aggregate_results(results, top_k, q_text, agg_strat) for results, q_text in zip(outs, q_texts)
             ]
-        if start_doc_idxs.shape[1] != top_k:
-            logger.info(f"Warning.. {doc_idxs.shape[1]} only retrieved")
-            top_k = start_doc_idxs.shape[1]
+        # if start_doc_idxs.shape[1] != top_k:
+        #     logger.info(f"Warning.. {doc_idxs.shape[1]} only retrieved")
+        #     top_k = start_doc_idxs.shape[1]
 
         return outs
