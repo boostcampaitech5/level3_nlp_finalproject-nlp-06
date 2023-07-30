@@ -9,8 +9,8 @@ from tqdm import tqdm
 from densephrases import DensePhrases
 
 # fixed setting
-# R_UNIT = 'dynamic'
-# TOP_K = 10
+R_UNIT = 'sentence'
+TOP_K = 100
 DUMP_DIR = 'DensePhrases/outputs/densephrases-multi_wiki-20181220/dump'
 RUNFILE_DIR = "runs"
 os.makedirs(RUNFILE_DIR, exist_ok=True)
@@ -20,15 +20,20 @@ class Retriever():
     def __init__(self, args):
         self.args = args
         self.initialize_retriever()
-        self.R_UNIT = args.r_unit
-        self.TOP_K = args.top_k
 
     def initialize_retriever(self):
+        if self.args.r_unit == 'dynamic':
+            assert self.args.query_encoder_phrase is not None
+            assert self.args.query_encoder_sentence is not None
+            self.load_dir = [self.args.query_encoder_phrase, self.args.query_encoder_sentence]
+        else:
+            self.load_dir = [self.args.query_encoder_name_or_dir]
         # load model
         self.model = DensePhrases(
             # change query encoder after re-training
-            p_load_dir=self.args.query_encoder_phrase,
-            s_load_dir=self.args.query_encoder_sentence,
+            # p_load_dir=self.args.query_encoder_phrase,
+            # s_load_dir=self.args.query_encoder_sentence,
+            load_dir=self.load_dir,
             dump_dir=DUMP_DIR,
             index_name=self.args.index_name
         )
