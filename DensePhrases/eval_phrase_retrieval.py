@@ -48,7 +48,7 @@ def embed_all_query(questions, args, query_encoder, tokenizer, batch_size=64):
 
 def evaluate(args, mips=None, query_encoder=None, tokenizer=None, q_idx=None):
     # Load dataset and encode queries
-    qids, questions, answers, _ = load_qa_pairs(args.test_path, args, q_idx)
+    qids, questions, answers, _, _ = load_qa_pairs(args.test_path, args, q_idx)
 
     if query_encoder is None:
         logger.info(f'Query encoder will be loaded from {args.load_dir}')
