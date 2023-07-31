@@ -91,18 +91,17 @@ def train_query_encoder(args, mips=None):
         total_accs_k = []
 
         # Load training dataset
-        q_ids, questions, answers, titles = load_qa_pairs(args.train_path, args, shuffle=True)
+        q_ids, questions, answers, titles, sentences, contexts = load_qa_pairs(args.train_path, args, shuffle=True)
         pbar = tqdm(get_top_phrases(
-            mips, q_ids, questions, answers, titles, pretrained_encoder, tokenizer,
+            mips, q_ids, questions, answers, titles, sentences, contexts, pretrained_encoder, tokenizer,
             args.per_gpu_train_batch_size, args)
         )
 
-        for step_idx, (q_ids, questions, answers, titles, outs) in enumerate(pbar):
+        for step_idx, (q_ids, questions, answers, titles, sentences, contexts, outs) in enumerate(pbar):
             train_dataloader, _, _ = get_question_dataloader(
                 questions, tokenizer, args.max_query_length, batch_size=args.per_gpu_train_batch_size
             )
-            svs, evs, tgts, p_tgts = annotate_phrase_vecs(mips, q_ids, questions, answers, titles, outs, args)
-
+            svs, evs, tgts, p_tgts, c_tgts, s_tgts = annotate_phrase_vecs(mips, q_ids, questions, answers, titles, sentences, contexts, outs, args)
             target_encoder.train()
             svs_t = torch.Tensor(svs).to(device)
             evs_t = torch.Tensor(evs).to(device)
@@ -284,8 +283,8 @@ def annotate_phrase_vecs(mips, q_ids, questions, answers, titles, sentences, con
     
     targets = [[None for phrase in phrase_group] for phrase_group in phrase_groups]
     p_targets = [[None for phrase in phrase_group] for phrase_group in phrase_groups]
-    s_targets = [[None for phrase in phrase_group] for phrase_group in phrase_groups]
     c_targets = [[None for phrase in phrase_group] for phrase_group in phrase_groups]
+    s_targets = [[None for phrase in phrase_group] for phrase_group in phrase_groups]
 
     # TODO: implement dynamic label_strategy based on the task name (label_strat = dynamic)
 
@@ -327,10 +326,7 @@ def annotate_phrase_vecs(mips, q_ids, questions, answers, titles, sentences, con
         ]
         s_targets = [[ii if val else None for ii, val in enumerate(target)] for target in s_targets]
 
-    return start_vecs, end_vecs, targets, p_targets, s_targets, c_targets
-
-
-    return start_vecs, end_vecs, targets, c_targets
+    return start_vecs, end_vecs, targets, p_targets, c_targets, s_targets
 
 
 if __name__ == '__main__':
