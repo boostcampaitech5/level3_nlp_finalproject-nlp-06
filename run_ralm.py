@@ -128,11 +128,22 @@ if __name__ == "__main__":
     parser.add_argument('--model_name', type=str, default='gpt-3.5-turbo-16k-0613', help='model name for openai api')
 
     # Retriever: Densephrase
-    parser.add_argument('--query_encoder_name_or_dir', type=str, default="princeton-nlp/densephrases-multi-query-multi",
-                        help="query encoder name registered in huggingface model hub OR custom query encoder checkpoint directory")
-    parser.add_argument('--index_name', type=str, default="1048576_flat_OPQ96",
-                        help="index name appended to index directory prefix")
-    
+    parser.add_argument(
+        "--query_encoder_name_or_dir",
+        type=str,
+        default="princeton-nlp/densephrases-multi-query-multi",
+        help="query encoder name registered in huggingface model hub OR custom query encoder checkpoint directory",
+    )
+    parser.add_argument(
+        "--index_name",
+        type=str,
+        default="start/1048576_flat_OPQ96_small",
+        help="index name appended to index directory prefix",
+    )
+    parser.add_argument(
+        "--static",
+        action="store_true",
+    )
     args = parser.parse_args()
 
     # to prevent collision with DensePhrase native argparser
@@ -149,20 +160,15 @@ if __name__ == "__main__":
 
     # launch gradio
     gr.Interface(
-    fn=question_answer, 
-    inputs=gr.inputs.Textbox(
-        default=DEFAULT_QUESTION, 
-        label="질문"
-        ), 
-    outputs=[
-        gr.inputs.Textbox(
-        default="챗봇의 답변을 표시합니다.", 
-        label="생성된 답변"),
-        gr.inputs.Textbox(
-        default="prompt에 사용된 검색 결과들을 표시합니다.", 
-        label="prompt에 첨부된 검색 결과들"),
-        ], 
-    title="지식기반 챗봇",
-    theme='dark-grass',
-    description="사용자의 지식베이스에 기반해서 대화하는 챗봇입니다.\n본 예시에서는 wikipedia dump에서 검색한 후 이를 바탕으로 답변을 생성합니다.\n\n retriever: densePhrase, generator: gpt-3.5-turbo-16k-0613 (API)"
+        fn=question_answer,
+        inputs=gr.inputs.Textbox(default=DEFAULT_QUESTION, label="질문"),
+        outputs=[
+            gr.inputs.Textbox(default="챗봇의 답변을 표시합니다.", label="생성된 답변"),
+            gr.inputs.Textbox(
+                default="prompt에 사용된 검색 결과들을 표시합니다.", label="prompt에 첨부된 검색 결과들"
+            ),
+        ],
+        title="지식기반 챗봇",
+        theme="dark-grass",
+        description="사용자의 지식베이스에 기반해서 대화하는 챗봇입니다.\n본 예시에서는 wikipedia dump에서 검색한 후 이를 바탕으로 답변을 생성합니다.\n\n retriever: densePhrase, generator: gpt-3.5-turbo-16k-0613 (API)",
     ).launch(share=True)
