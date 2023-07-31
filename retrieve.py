@@ -77,7 +77,7 @@ class Retriever():
 
                     # write to runfile
                     for i in range(len(result)):
-                        fw.write(f"{qids[idx]}\t{result[i]}\t{rets[i]}\n")
+                        fw.write(f"{qids[idx]}\t{result[i]}\t{meta[i]}\n")
                         idx += 1
 
             return None
