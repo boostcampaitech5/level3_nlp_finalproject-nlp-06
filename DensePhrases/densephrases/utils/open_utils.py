@@ -129,6 +129,9 @@ def load_qa_pairs(data_path, args, q_idx=None, draft_num_examples=100, shuffle=F
         questions.append(question)
         answers.append(answer)
         titles.append(title)
+        sentences.append(sentence)
+        contexts.append(context)
+    
     questions = [query[:-1] if query.endswith('?') else query for query in questions]
     # questions = [query.lower() for query in questions] # force lower query
 
