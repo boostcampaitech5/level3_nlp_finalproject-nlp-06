@@ -50,12 +50,12 @@ class Retriever():
                 idx = 0
                 for batch_query in tqdm(queries_batch):
                     # retrieve
-                    result = self.model.search(
-                        batch_query, retrieval_unit=R_UNIT, top_k=TOP_K)
+                    result, rets = self.model.search(
+                        batch_query, retrieval_unit=R_UNIT, top_k=TOP_K, return_meta=True, agg_add_weight=self.args.agg_add_weight)
 
                     # write to runfile
                     for i in range(len(result)):
-                        fw.write(f"{qids[idx]}\t{result[i]}\n")
+                        fw.write(f"{qids[idx]}\t{result[i]}\t{rets[i]}\n")
                         idx += 1
 
             return None
@@ -86,6 +86,8 @@ if __name__ == "__main__":
                         help="output runfile name which indluces query id and retrieved collection")
     parser.add_argument('--batch_size', type=int, default=1,
                         help="#query to process with parallel processing")
+    parser.add_argument('--agg_add_weight', type=bool, default=False,
+                        help="weight scores for duplicate unit when aggregate")
 
     args = parser.parse_args()
 
