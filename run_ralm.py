@@ -144,6 +144,7 @@ if __name__ == "__main__":
         "--static",
         action="store_true",
     )
+
     args = parser.parse_args()
 
     # to prevent collision with DensePhrase native argparser

@@ -99,6 +99,7 @@ class Retriever():
                 phrase_sentence.append(phrase_answer_list_no_subset + result)
 
                 result = phrase_sentence[0]
+
             return result
         else:
             raise NotImplementedError
