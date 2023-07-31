@@ -50,20 +50,61 @@ class Retriever():
                 idx = 0
                 for batch_query in tqdm(queries_batch):
                     # retrieve
-                    result, rets = self.model.search(
+                    result, meta = self.model.search(
                         batch_query, retrieval_unit=R_UNIT, top_k=TOP_K, return_meta=True, agg_add_weight=self.args.agg_add_weight)
+
+                    if self.args.static:
+                        result_phrase, meta_phrase = self.model.search(
+                            batch_query, retrieval_unit='phrase', top_k=TOP_K)
+
+                        phrase_sentence = []
+                        for sentences, phrase_answer_list in zip(result, result_phrase):
+                            phrase_answer_list_no_subset = []
+
+                            for answer in phrase_answer_list:
+                                is_in = False
+                                for pre_answer in phrase_answer_list_no_subset:
+                                    if answer in pre_answer:
+                                        is_in = True
+
+                                if not is_in:
+                                    phrase_answer_list_no_subset.append(answer)
+
+                            phrase_sentence.append(
+                                phrase_answer_list_no_subset + sentences)
+
+                        result = phrase_sentence
 
                     # write to runfile
                     for i in range(len(result)):
-                        fw.write(f"{qids[idx]}\t{result[i]}\t{rets[i]}\n")
+                        fw.write(f"{qids[idx]}\t{result[i]}\t{meta[i]}\n")
                         idx += 1
 
             return None
 
         elif isinstance(single_query_or_queries_dict, str):  # online search
-            result = self.model.search(
+            result, meta = self.model.search(
                 single_query_or_queries_dict, retrieval_unit=R_UNIT, top_k=TOP_K)
 
+            breakpoint()
+            if self.args.static:
+                phrase_sentence = []
+                result_phrase, meta_phrase = self.model.search(
+                    single_query_or_queries_dict, retrieval_unit='phrase', top_k=TOP_K)
+                phrase_answer_list_no_subset = []
+                for answer in result_phrase:
+                    is_in = False
+                    for pre_answer in phrase_answer_list_no_subset:
+                        if answer in pre_answer:
+                            is_in = True
+
+                    if not is_in:
+                        phrase_answer_list_no_subset.append(answer)
+
+                phrase_sentence.append(phrase_answer_list_no_subset + result)
+
+                result = phrase_sentence[0]
+                breakpoint()
             return result
         else:
             raise NotImplementedError
@@ -74,9 +115,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description='Retrieve query-relevant collection with varying topK.')
 
-    parser.add_argument('--query_encoder_name_or_dir', type=str, default="princeton-nlp/densephrases-multi-query-multi",
+    parser.add_argument('--query_encoder_name_or_dir', type=str, default="princeton-nlp/densephrases-multi",
                         help="query encoder name registered in huggingface model hub OR custom query encoder checkpoint directory")
-    parser.add_argument('--index_name', type=str, default="start/1048576_flat_OPQ96",
+    parser.add_argument('--index_name', type=str, default="start/1048576_flat_OPQ96_small",
                         help="index name appended to index directory prefix")
     parser.add_argument('--query_list_path', type=str, default="DensePhrases/densephrases-data/open-qa/nq-open/test_preprocessed.json",
                         help="use batch search by default")
@@ -84,10 +125,13 @@ if __name__ == "__main__":
                         help="if presented do online search instead of batch search")
     parser.add_argument('--runfile_name', type=str, default="run.tsv",
                         help="output runfile name which indluces query id and retrieved collection")
-    parser.add_argument('--batch_size', type=int, default=1,
+    parser.add_argument('--batch_size', type=int, default=128,
                         help="#query to process with parallel processing")
     parser.add_argument('--agg_add_weight', type=bool, default=False,
                         help="weight scores for duplicate unit when aggregate")
+    parser.add_argument("--truecase", action="store_true",
+                        help="set True when we use case-sentive language model")
+    parser.add_argument("--static", action="store_true")
 
     args = parser.parse_args()
 
@@ -109,6 +153,7 @@ if __name__ == "__main__":
             'queries': queries,
             'qids': qids,
         }
+    # single query
     else:
         inputs = args.single_query
 
