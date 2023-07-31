@@ -1,3 +1,7 @@
+from transformers import (
+    AdamW,
+    get_linear_schedule_with_warmup,
+)
 import json
 import argparse
 import torch
@@ -21,10 +25,10 @@ from densephrases.utils.eval_utils import drqa_exact_match_score, drqa_regex_mat
 from eval_phrase_retrieval import evaluate
 from densephrases import Options
 
-from transformers import (
-    AdamW,
-    get_linear_schedule_with_warmup,
-)
+from spacy.lang.en import English
+sentencizer = English()
+sentencizer.add_pipe(sentencizer.create_pipe('sentencizer'))
+
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s', datefmt='%m/%d/%Y %H:%M:%S',
                     level=logging.INFO)
@@ -104,49 +108,46 @@ def train_query_encoder(args, mips=None):
             train_dataloader, _, _ = get_question_dataloader(
                 questions, tokenizer, args.max_query_length, batch_size=args.per_gpu_train_batch_size
             )
-            svs, evs, tgts, c_tgts = annotate_phrase_vecs(
+            svs, evs, tgts, p_tgts, c_tgts, s_tgts = annotate_phrase_vecs(
                 mips, q_ids, questions, answers, titles, sentences, contexts, outs, args)
-
             target_encoder.train()
             svs_t = torch.Tensor(svs).to(device)
             evs_t = torch.Tensor(evs).to(device)
             tgts_t = [torch.Tensor([tgt_ for tgt_ in tgt if tgt_ is not None]).to(
                 device) for tgt in tgts]
+            p_tgts_t = [torch.Tensor([tgt_ for tgt_ in tgt if tgt_ is not None]).to(
+                device) for tgt in p_tgts]
             c_tgts_t = [torch.Tensor([tgt_ for tgt_ in tgt if tgt_ is not None]).to(
-                device) for tgt in c_tgts]
+                device) for tgt in p_tgts]
+            s_tgts_t = [torch.Tensor([tgt_ for tgt_ in tgt if tgt_ is not None]).to(
+                device) for tgt in s_tgts]
 
             assert len(train_dataloader) == 1
 
             for batch in train_dataloader:
                 batch = tuple(t.to(device) for t in batch)
-                loss_phrase, loss_context, accs = target_encoder.train_query(
+                loss, accs = target_encoder.train_query(
                     input_ids_=batch[0], attention_mask_=batch[1], token_type_ids_=batch[2],
                     start_vecs=svs_t,
                     end_vecs=evs_t,
                     targets=tgts_t,
+                    p_targets=p_tgts_t,
                     c_targets=c_tgts_t,
+                    s_targets=s_tgts_t,
                 )
 
                 # Optimize, get acc and report
-                if loss_phrase is not None and loss_context is not None:
+                if loss is not None:
                     if args.gradient_accumulation_steps > 1:
-                        loss_phrase = loss_phrase / args.gradient_accumulation_steps
-                        loss_context = loss_context / args.gradient_accumulation_steps
+                        loss = loss / args.gradient_accumulation_steps
                     if args.fp16:
-                        with amp.scale_loss(loss_phrase, optimizer) as scaled_loss:
-                            scaled_loss.backward()
-                        with amp.scale_loss(loss_context, optimizer) as scaled_loss:
+                        with amp.scale_loss(loss, optimizer) as scaled_loss:
                             scaled_loss.backward()
                     else:
-                        if loss_phrase != 0.0 and loss_context != 0.0:
-                            loss_phrase.backward(retain_graph=True)
-                            loss_context.backward()
-                        else:
-                            loss_phrase.backward()
-                            loss_context = torch.tensor(loss_context)
+                        loss = torch.tensor([loss], requires_grad=True)
+                        loss.backward()
 
-                    total_loss_phrase += loss_phrase.mean().item()
-                    total_loss_context += loss_context.mean().item()
+                    total_loss_phrase += loss.mean().item()
                     if args.fp16:
                         torch.nn.utils.clip_grad_norm_(
                             amp.master_params(optimizer), args.max_grad_norm)
@@ -159,7 +160,7 @@ def train_query_encoder(args, mips=None):
                     target_encoder.zero_grad()
 
                     pbar.set_description(
-                        f"Ep {ep_idx+1} Tr loss_phrase: {loss_phrase.mean().item():.2f}, Tr loss_context: {loss_context.mean().item():.2f}, acc: {sum(accs)/len(accs):.3f}"
+                        f"Ep {ep_idx+1} Tr loss: {loss.mean().item():.2f}, acc: {sum(accs)/len(accs):.3f}"
                     )
 
                 if accs is not None:
@@ -249,8 +250,25 @@ def annotate_phrase_vecs(mips, q_ids, questions, answers, titles, sentences, con
         'answer': '',
         'start_vec': np.zeros(768),
         'end_vec': np.zeros(768),
-        'context': '', 'title': ['']
+        'context': '', 'title': [''],
+        'sentence': ['']
     }
+
+    # get sentence information
+    for group_idx, phrase_group in enumerate(phrase_groups):
+        for sample_idx, sample in enumerate(phrase_group):
+            sents = [(X.text, X[0].idx)
+                     for X in sentencizer(sample['context']).sents]
+            get_sent_range = [i[1] for i in sents]
+            sent_pos = 0
+            for i in range(len(get_sent_range)):
+                if i != (len(get_sent_range) - 1):
+                    if get_sent_range[i] <= sample['start_pos'] and get_sent_range[i+1] > sample['end_pos']:
+                        sent_pos = i
+                elif i == (len(get_sent_range) - 1):
+                    if get_sent_range[i] <= sample['start_pos'] and (len(get_sent_range)-1) > sample['end_pos']:
+                        sent_pos = i
+            phrase_groups[group_idx][sample_idx]['sentence'] = sents[sent_pos][0]
 
     # Pad phrase groups (two separate top-k coming from start/end, so pad with top_k*2)
 
@@ -281,10 +299,13 @@ def annotate_phrase_vecs(mips, q_ids, questions, answers, titles, sentences, con
     end_vecs = np.reshape(end_vecs, (batch_size, args.top_k*2, -1))
 
     # Dummy targets
-
     targets = [[None for phrase in phrase_group]
                for phrase_group in phrase_groups]
+    p_targets = [[None for phrase in phrase_group]
+                 for phrase_group in phrase_groups]
     c_targets = [[None for phrase in phrase_group]
+                 for phrase_group in phrase_groups]
+    s_targets = [[None for phrase in phrase_group]
                  for phrase_group in phrase_groups]
 
     # TODO: implement dynamic label_strategy based on the task name (label_strat = dynamic)
@@ -300,8 +321,19 @@ def annotate_phrase_vecs(mips, q_ids, questions, answers, titles, sentences, con
                 match_fn, phrase['answer'], answer_set) for phrase in phrase_group]
             for phrase_group, answer_set, match_fn in zip(phrase_groups, answers, match_fns)
         ]
+
         targets = [[ii if val else None for ii,
                     val in enumerate(target)] for target in targets]
+
+    # Annotate for L_doc
+    if 'doc' in args.label_strat.split(','):
+        p_targets = [
+            [any(phrase['title'][0].lower() == tit.lower()
+                 for tit in title) for phrase in phrase_group]
+            for phrase_group, title in zip(phrase_groups, titles)
+        ]
+        p_targets = [[ii if val else None for ii,
+                      val in enumerate(target)] for target in p_targets]
 
     # Annotate for L_context
     if 'context' in args.label_strat.split(','):
@@ -309,10 +341,21 @@ def annotate_phrase_vecs(mips, q_ids, questions, answers, titles, sentences, con
             [context[1:] in phrase['context'] for phrase in phrase_group]
             for phrase_group, context in zip(phrase_groups, contexts)
         ]
+
         c_targets = [[ii if val else None for ii,
                       val in enumerate(target)] for target in c_targets]
 
-    return start_vecs, end_vecs, targets, c_targets
+    # Annotate for L_sentence
+    if 'sentence' in args.label_strat.split(','):
+        s_targets = [
+            [any(phrase['sentence'].lower() in sent.lower()
+                 for sent in sentence) for phrase in phrase_group]
+            for phrase_group, sentence in zip(phrase_groups, sentences)
+        ]
+        s_targets = [[ii if val else None for ii,
+                      val in enumerate(target)] for target in s_targets]
+
+    return start_vecs, end_vecs, targets, p_targets, c_targets, s_targets
 
 
 if __name__ == '__main__':

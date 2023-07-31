@@ -179,5 +179,5 @@ def load_qa_pairs(data_path, args, q_idx=None, draft_num_examples=100, shuffle=F
 
     logger.info(f'Loading {len(questions)} questions from {data_path}')
     logger.info(
-        f'Sample Q ({q_ids[0]}): {questions[0]}, A: {answers[0]}, Title: {titles[0]}')
+        f'Sample Q ({q_ids[0]}): {questions[0]}, A: {answers[0]}, Title: {titles[0]}, Sentence: {sentences[0]}')
     return q_ids, questions, answers, titles, sentences, contexts
