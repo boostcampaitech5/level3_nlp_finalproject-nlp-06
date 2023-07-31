@@ -91,8 +91,7 @@ def train_query_encoder(args, mips=None):
     for ep_idx in range(int(args.num_train_epochs)):
 
         # Training
-        total_loss_phrase = 0.0
-        total_loss_context = 0.0
+        total_loss = 0.0
         total_accs = []
         total_accs_k = []
 
@@ -134,6 +133,7 @@ def train_query_encoder(args, mips=None):
                     p_targets=p_tgts_t,
                     c_targets=c_tgts_t,
                     s_targets=s_tgts_t,
+                    add_component=args.add_component,
                 )
 
                 # Optimize, get acc and report
@@ -147,7 +147,7 @@ def train_query_encoder(args, mips=None):
                         loss = torch.tensor([loss], requires_grad=True)
                         loss.backward()
 
-                    total_loss_phrase += loss.mean().item()
+                    total_loss += loss.mean().item()
                     if args.fp16:
                         torch.nn.utils.clip_grad_norm_(
                             amp.master_params(optimizer), args.max_grad_norm)
@@ -172,7 +172,7 @@ def train_query_encoder(args, mips=None):
 
         step_idx += 1
         logger.info(
-            f"Avg train loss ({step_idx} iterations, phrase / doc): {total_loss_phrase/step_idx:.2f} / {total_loss_context/step_idx:.2f} | train " +
+            f"Avg train loss ({step_idx} iterations): {total_loss/step_idx:.2f} | train " +
             f"acc@1: {sum(total_accs)/len(total_accs):.3f} | acc@{args.top_k}: {sum(total_accs_k)/len(total_accs_k):.3f}"
         )
 

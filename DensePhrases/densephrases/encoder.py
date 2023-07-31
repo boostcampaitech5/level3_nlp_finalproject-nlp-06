@@ -414,6 +414,7 @@ class Encoder(PreTrainedModel):
         input_ids_=None, attention_mask_=None, token_type_ids_=None,
         start_vecs=None, end_vecs=None,
         targets=None, p_targets=None, s_targets=None, c_targets=None,
+        add_component=None
     ):
 
         # Skip if no targets for phrases
@@ -432,10 +433,10 @@ class Encoder(PreTrainedModel):
         logits = start_logits + end_logits
 
         # L_phrase: MML over phrase-level annotation
-        phrase_log_probs = 0.0
+        log_probs = 0.0
         MIN_PROB = 1e-7
         if not all([len(t) == 0 for t in targets]):
-            phrase_log_probs = [
+            log_probs = [
                 -torch.log(softmax(lg, -1)[tg.long()].sum().clamp(MIN_PROB, 1)) for lg, tg in zip(logits, targets)
                 if len(tg) > 0
             ]
@@ -455,6 +456,16 @@ class Encoder(PreTrainedModel):
 
         # L_doc: MML over passage-level annotation
         if not all([len(t) == 0 for t in p_targets]):
+            if add_component:
+                p_logits = logits.clone()
+                for b_idx, p_logit in enumerate(p_logits):
+                    p_logits[b_idx][targets[b_idx].long()] = -1e9
+                doc_log_probs = [
+                    -torch.log(softmax(lg, -1)[tg.long()].sum().clamp(MIN_PROB, 1)) for lg, tg in zip(p_logits, p_targets)
+                    if len(tg) > 0
+                ]
+                log_probs = log_probs + sum(doc_log_probs)/len(doc_log_probs)
+
             p_start_logits = start_logits.clone()
             for b_idx, p_start_logit in enumerate(p_start_logits):
                 p_start_logits[b_idx][targets[b_idx].long()] = -1e9
@@ -474,16 +485,17 @@ class Encoder(PreTrainedModel):
                 sum(p_end_loss)/len(p_end_loss)
 
         # L_context: MML over passage-level annotation
-        log_probs = 0.0
         if not all([len(t) == 0 for t in c_targets]):
-            c_logits = logits.clone()
-            for b_idx, c_logit in enumerate(c_logits):
-                c_logits[b_idx][targets[b_idx].long()] = -1e9
-            context_log_probs = [
-                -torch.log(softmax(lg, -1)[tg.long()].sum().clamp(MIN_PROB, 1)) for lg, tg in zip(c_logits, c_targets)
-                if len(tg) > 0
-            ]
-            context_log_probs = sum(context_log_probs)/len(context_log_probs)
+            if add_component:
+                c_logits = logits.clone()
+                for b_idx, c_logit in enumerate(c_logits):
+                    c_logits[b_idx][targets[b_idx].long()] = -1e9
+                context_log_probs = [
+                    -torch.log(softmax(lg, -1)[tg.long()].sum().clamp(MIN_PROB, 1)) for lg, tg in zip(c_logits, c_targets)
+                    if len(tg) > 0
+                ]
+                log_probs = log_probs + \
+                    sum(context_log_probs)/len(context_log_probs)
 
             c_start_logits = start_logits.clone()
             for b_idx, c_start_logit in enumerate(c_start_logits):
@@ -507,6 +519,17 @@ class Encoder(PreTrainedModel):
 
         # L_sentence: MML over sentence-level annotation
         if not all([len(t) == 0 for t in s_targets]):
+            if add_component:
+                s_logits = logits.clone()
+                for b_idx, s_logit in enumerate(s_logits):
+                    s_logits[b_idx][targets[b_idx].long()] = -1e9
+                sentence_log_probs = [
+                    -torch.log(softmax(lg, -1)[tg.long()].sum().clamp(MIN_PROB, 1)) for lg, tg in zip(s_logits, s_targets)
+                    if len(tg) > 0
+                ]
+                log_probs = log_probs + \
+                    sum(sentence_log_probs)/len(sentence_log_probs)
+
             s_start_logits = start_logits.clone()
             for b_idx, s_start_logit in enumerate(s_start_logits):
                 s_start_logits[b_idx][targets[b_idx].long()] = -1e9
@@ -528,4 +551,4 @@ class Encoder(PreTrainedModel):
         _, rerank_idx = torch.sort(logits, -1, descending=True)
         top1_acc = [rerank[0] in target for rerank,
                     target in zip(rerank_idx, targets)]
-        return phrase_log_probs, context_log_probs, top1_acc
+        return log_probs, top1_acc
