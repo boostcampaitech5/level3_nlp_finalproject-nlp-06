@@ -66,7 +66,7 @@ class DensePhrases(object):
 
         # Pre-processing
         if truecase:
-            query = [self.truecase.get_true_case(
+            batch_query = [self.truecase.get_true_case(
                 query) if query == query.lower() else query for query in batch_query]
 
         # Get question vector
