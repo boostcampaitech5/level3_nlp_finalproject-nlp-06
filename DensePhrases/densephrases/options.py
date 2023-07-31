@@ -184,7 +184,7 @@ class Options():
         self.parser.add_argument("--weight_decay", default=0.1, type=float, help="Weight decay if we apply some.")
         self.parser.add_argument("--adam_epsilon", default=1e-8, type=float, help="Epsilon for Adam optimizer.")
         self.parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
-        self.parser.add_argument('--label_strat', default='phrase', type=str, help="label strat={phrase|doc|phrase,doc}")
+        self.parser.add_argument('--label_strat', default='phrase', type=str, help="label strat={phrase|doc|phrase,doc|sentence}")
 
     def add_demo_options(self):
         self.parser.add_argument('--base_ip', default='http://127.0.0.1')

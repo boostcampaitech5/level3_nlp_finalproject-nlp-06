@@ -370,12 +370,12 @@ class Encoder(PreTrainedModel):
         self,
         input_ids_=None, attention_mask_=None, token_type_ids_=None,
         start_vecs=None, end_vecs=None,
-        targets=None, c_targets=None,
+        targets=None, p_targets=None, s_targets=None, c_targets=None,
     ):
 
         # Skip if no targets for phrases
         if start_vecs is not None:
-            if all([len(t) == 0 for t in targets]) and all([len(t) == 0 for t in c_targets]):
+            if all([len(t) == 0 for t in targets]) and all([len(t) == 0 for t in p_targets]) and all([len(t) == 0 for t in s_targets]) and all([len(t) == 0 for t in c_targets]):
                 return None, None
 
         # Compute query embedding
@@ -393,11 +393,11 @@ class Encoder(PreTrainedModel):
         if not all([len(t) == 0 for t in targets]):
             log_probs = [
                 -torch.log(softmax(lg, -1)[tg.long()].sum().clamp(MIN_PROB, 1)) for lg, tg in zip(logits, targets)
-                if len(tg) > 0 
+                if len(tg) > 0
             ]
-
             log_probs = sum(log_probs)/len(log_probs)
 
+            # Start/End only loss
             start_loss = [
                 -torch.log(softmax(lg, -1)[tg.long()].sum().clamp(MIN_PROB, 1)) for lg, tg in zip(start_logits, targets)
                 if len(tg) > 0
@@ -406,9 +406,25 @@ class Encoder(PreTrainedModel):
                 -torch.log(softmax(lg, -1)[tg.long()].sum().clamp(MIN_PROB, 1)) for lg, tg in zip(end_logits, targets)
                 if len(tg) > 0
             ]
-            # 
-            
             log_probs = log_probs + sum(start_loss)/len(start_loss) + sum(end_loss)/len(end_loss)
+
+        # L_doc: MML over passage-level annotation
+        if not all([len(t) == 0 for t in p_targets]):
+            p_start_logits = start_logits.clone()
+            for b_idx, p_start_logit in enumerate(p_start_logits):
+                p_start_logits[b_idx][targets[b_idx].long()] = -1e9
+            p_start_loss = [
+                -torch.log(softmax(lg, -1)[tg.long()].sum().clamp(MIN_PROB, 1)) for lg, tg in zip(p_start_logits, p_targets)
+                if len(tg) > 0
+            ]
+            p_end_logits = end_logits.clone()
+            for b_idx, p_end_logit in enumerate(p_end_logits):
+                p_end_logits[b_idx][targets[b_idx].long()] = -1e9
+            p_end_loss = [
+                -torch.log(softmax(lg, -1)[tg.long()].sum().clamp(MIN_PROB, 1)) for lg, tg in zip(p_end_logits, p_targets)
+                if len(tg) > 0
+            ]
+            log_probs = log_probs + sum(p_start_loss)/len(p_start_loss) + sum(p_end_loss)/len(p_end_loss)
 
         # L_context: MML over passage-level annotation
         if not all([len(t) == 0 for t in c_targets]):
@@ -434,6 +450,23 @@ class Encoder(PreTrainedModel):
             
             log_probs = log_probs + sum(c_start_loss)/len(c_start_loss) + sum(c_end_loss)/len(c_end_loss)
 
+        # L_sentence: MML over sentence-level annotation
+        if not all([len(t) == 0 for t in s_targets]):
+            s_start_logits = start_logits.clone()
+            for b_idx, s_start_logit in enumerate(s_start_logits):
+                s_start_logits[b_idx][targets[b_idx].long()] = -1e9
+            s_start_loss = [
+                -torch.log(softmax(lg, -1)[tg.long()].sum().clamp(MIN_PROB, 1)) for lg, tg in zip(s_start_logits, s_targets)
+                if len(tg) > 0
+            ]
+            s_end_logits = end_logits.clone()
+            for b_idx, p_end_logit in enumerate(s_end_logits):
+                s_end_logits[b_idx][targets[b_idx].long()] = -1e9
+            s_end_loss = [
+                -torch.log(softmax(lg, -1)[tg.long()].sum().clamp(MIN_PROB, 1)) for lg, tg in zip(s_end_logits, s_targets)
+                if len(tg) > 0
+            ]
+            log_probs = log_probs + sum(s_start_loss)/len(s_start_loss) + sum(s_end_loss)/len(s_end_loss)
 
         _, rerank_idx = torch.sort(logits, -1, descending=True)
 
