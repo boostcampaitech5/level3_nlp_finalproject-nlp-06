@@ -51,7 +51,7 @@ class Retriever():
                 for batch_query in tqdm(queries_batch):
                     # retrieve
                     result, rets = self.model.search(
-                        batch_query, retrieval_unit=self.args.unit, top_k=self.args.topk, return_meta=True, agg_add_weight=self.args.agg_add_weight)
+                        batch_query, retrieval_unit=R_UNIT, top_k=TOP_K, return_meta=True, agg_add_weight=self.args.agg_add_weight)
 
                     # write to runfile
                     for i in range(len(result)):
@@ -87,10 +87,6 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', type=int, default=1,
                         help="#query to process with parallel processing")
     parser.add_argument('--agg_add_weight', type=bool, default=False,
-                        help="weight scores for duplicate unit when aggregate")
-    parser.add_argument('--unit', type=str, default='sentence',
-                        help="weight scores for duplicate unit when aggregate")
-    parser.add_argument('--topk', type=int, default=100,
                         help="weight scores for duplicate unit when aggregate")
 
     args = parser.parse_args()
