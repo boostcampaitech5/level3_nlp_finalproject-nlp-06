@@ -779,7 +779,7 @@ class MIPS(object):
         logger.debug(f'4) {time()-start_time:.3f}s: get metadata')
         return new_out
 
-    def aggregate_results(self, results, top_k=10, q_text=None, agg_strat='opt1'):
+    def aggregate_results(self, results, top_k=10, q_text=None, agg_strat='opt1', agg_add_weight=False):
         out = []
         doc_ans = {}
         if agg_add_weight:
@@ -824,7 +824,7 @@ class MIPS(object):
     def search(self, query, q_texts=None,
                nprobe=256, top_k=10,
                aggregate=False, return_idxs=False,
-               max_answer_length=10, agg_strat='opt1', return_sent=False):
+               max_answer_length=10, agg_strat='opt1', return_sent=False, agg_add_weight=False):
 
         # MIPS on start/end
         start_time = time()
@@ -863,7 +863,7 @@ class MIPS(object):
         # Aggregate
         if aggregate:
             outs = [
-                self.aggregate_results(results, top_k, q_text, agg_strat) for results, q_text in zip(outs, q_texts)
+                self.aggregate_results(results, top_k, q_text, agg_strat, agg_add_weight) for results, q_text in zip(outs, q_texts)
             ]
 
         return outs
