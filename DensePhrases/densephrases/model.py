@@ -21,7 +21,8 @@ class DensePhrases(object):
                  device='cuda',
                  verbose=False,
                  **kwargs):
-        print("This could take up to 15 mins depending on the file reading speed of HDD/SSD")
+        print(
+            "This could take up to 15 mins depending on the file reading speed of HDD/SSD")
 
         # Turn off loggers
         if not verbose:
@@ -57,10 +58,11 @@ class DensePhrases(object):
         self.mips = load_phrase_index(self.args, ignore_logging=not verbose)
 
         # Others
-        self.truecase = TrueCaser(os.path.join(os.environ['DATA_DIR'], self.args.truecase_path))
+        self.truecase = TrueCaser(os.path.join(
+            os.environ['DATA_DIR'], self.args.truecase_path))
         print("Loading DensePhrases Completed!")
 
-    def search(self, query='', retrieval_unit='phrase', top_k=10, truecase=True, return_meta=False):
+    def search(self, query='', retrieval_unit='phrase', top_k=10, truecase=True, return_meta=False, agg_add_weight=False):
         # If query is str, single query
         single_query = False
         if type(query) == str:
@@ -94,7 +96,8 @@ class DensePhrases(object):
         # Search
         agg_strats = {'phrase': 'opt1', 'sentence': 'opt2', 'paragraph': 'opt2', 'document': 'opt3', 'dynamic':'opt0'}
         if retrieval_unit not in agg_strats:
-            raise NotImplementedError(f'"{retrieval_unit}" not supported. Choose one of {agg_strats.keys()}.')
+            raise NotImplementedError(
+                f'"{retrieval_unit}" not supported. Choose one of {agg_strats.keys()}.')
         search_top_k = top_k
         if retrieval_unit in ['sentence', 'paragraph', 'document']:
             search_top_k *= 2
@@ -103,7 +106,8 @@ class DensePhrases(object):
             query_vec, q_texts=batch_query, nprobe=256,
             top_k=search_top_k, max_answer_length=10,
             return_idxs=False, aggregate=True, agg_strat=agg_strats[retrieval_unit],
-            return_sent=True if retrieval_unit == 'sentence' or 'dynamic' else False
+            return_sent=True if retrieval_unit == 'sentence' or 'dynamic' else False,
+            agg_add_weight=agg_add_weight
         )
 
         # Gather results
@@ -132,7 +136,8 @@ class DensePhrases(object):
         
     def set_encoder(self, load_dir, device='cuda'):
         self.args.load_dir = load_dir
-        self.model, self.tokenizer, self.config = load_encoder(device, self.args)
+        self.model, self.tokenizer, self.config = load_encoder(
+            device, self.args)
         self.query2vec = get_query2vec(
             query_encoder=self.model, tokenizer=self.tokenizer, args=self.args, batch_size=64
         )
