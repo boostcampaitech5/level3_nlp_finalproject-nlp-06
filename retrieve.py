@@ -9,8 +9,6 @@ from tqdm import tqdm
 from densephrases import DensePhrases
 
 # fixed setting
-R_UNIT = 'sentence'
-TOP_K = 100
 DUMP_DIR = 'DensePhrases/outputs/densephrases-multi_wiki-20181220/dump'
 RUNFILE_DIR = "runs"
 os.makedirs(RUNFILE_DIR, exist_ok=True)
@@ -18,6 +16,8 @@ os.makedirs(RUNFILE_DIR, exist_ok=True)
 
 class Retriever():
     def __init__(self, args):
+        self.R_UNIT = args.r_unit
+        self.TOP_K = args.top_k
         self.args = args
         self.initialize_retriever()
 
