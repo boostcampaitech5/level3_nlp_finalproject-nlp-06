@@ -108,6 +108,7 @@ def load_qa_pairs(data_path, args, q_idx=None, draft_num_examples=100, shuffle=F
     titles = []
     contexts = []
     ans_pos_list = []
+    sentences = []
     data = json.load(open(data_path))['data']
     for data_idx, item in enumerate(data):
         if q_idx is not None:
@@ -124,14 +125,13 @@ def load_qa_pairs(data_path, args, q_idx=None, draft_num_examples=100, shuffle=F
         context = item.get('context', [''])
         if context != ['']:
             context = context.strip()
+        sentence = item.get('sentence', [''])
         if len(answer) == 0:
             continue
         q_ids.append(q_id)
         questions.append(question)
         answers.append(answer)
         titles.append(title)
-        contexts.append(context)
-        
     questions = [query[:-1] if query.endswith('?') else query for query in questions]
     # questions = [query.lower() for query in questions] # force lower query
 
@@ -140,9 +140,9 @@ def load_qa_pairs(data_path, args, q_idx=None, draft_num_examples=100, shuffle=F
         questions = [query.lower() for query in questions]
 
     if shuffle:
-        qa_pairs = list(zip(q_ids, questions, answers, titles, contexts))
+        qa_pairs = list(zip(q_ids, questions, answers, titles, sentences, contexts))
         random.shuffle(qa_pairs)
-        q_ids, questions, answers, titles, contexts = zip(*qa_pairs)
+        q_ids, questions, answers, titles, sentences, contexts = zip(*qa_pairs)
         logger.info(f'Shuffling QA pairs')
 
     if args.draft:
@@ -150,6 +150,7 @@ def load_qa_pairs(data_path, args, q_idx=None, draft_num_examples=100, shuffle=F
         questions = np.array(questions)[:draft_num_examples].tolist()
         answers = np.array(answers)[:draft_num_examples].tolist()
         titles = np.array(titles)[:draft_num_examples].tolist()
+        sentences = np.array(sentences)[:draft_num_examples].tolist()
 
     if args.truecase:
         try:
@@ -163,6 +164,6 @@ def load_qa_pairs(data_path, args, q_idx=None, draft_num_examples=100, shuffle=F
             print(e)
 
     logger.info(f'Loading {len(questions)} questions from {data_path}')
-    logger.info(f'Sample Q ({q_ids[0]}): {questions[0]}, A: {answers[0]}, Title: {titles[0]}, Context: {contexts[0]}')
-    return q_ids, questions, answers, titles, contexts
+    logger.info(f'Sample Q ({q_ids[0]}): {questions[0]}, A: {answers[0]}, Title: {titles[0]}')
+    return q_ids, questions, answers, titles, sentences, contexts
 
