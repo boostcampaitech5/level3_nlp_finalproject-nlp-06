@@ -9,8 +9,6 @@ from tqdm import tqdm
 from densephrases import DensePhrases
 
 # fixed setting
-R_UNIT = 'sentence'
-TOP_K = 200
 DUMP_DIR = 'DensePhrases/outputs/densephrases-multi_wiki-20181220/dump'
 RUNFILE_DIR = "runs"
 os.makedirs(RUNFILE_DIR, exist_ok=True)
@@ -18,14 +16,24 @@ os.makedirs(RUNFILE_DIR, exist_ok=True)
 
 class Retriever():
     def __init__(self, args):
+        self.R_UNIT = args.r_unit
+        self.TOP_K = args.top_k
         self.args = args
         self.initialize_retriever()
 
     def initialize_retriever(self):
+        if self.args.r_unit == 'dynamic':
+            assert self.args.query_encoder_phrase is not None
+            assert self.args.query_encoder_sentence is not None
+            self.load_dir = [self.args.query_encoder_phrase, self.args.query_encoder_sentence]
+        else:
+            self.load_dir = [self.args.query_encoder_name_or_dir]
         # load model
         self.model = DensePhrases(
             # change query encoder after re-training
-            load_dir=self.args.query_encoder_name_or_dir,
+            # p_load_dir=self.args.query_encoder_phrase,
+            # s_load_dir=self.args.query_encoder_sentence,
+            load_dir=self.load_dir,
             dump_dir=DUMP_DIR,
             index_name=self.args.index_name
         )
@@ -53,12 +61,12 @@ class Retriever():
                 idx = 0
                 for batch_query in tqdm(queries_batch):
                     # retrieve
-                    result, meta = self.model.search(
-                        batch_query, retrieval_unit=R_UNIT, top_k=TOP_K, return_meta=True, agg_add_weight=self.args.agg_add_weight)
+                    result, meta, meta = self.model.search(
+                        batch_query, retrieval_unit=self.R_UNIT, top_k=self.TOP_K, return_meta=True, return_meta=True, agg_add_weight=self.args.agg_add_weight)
 
                     if self.args.static:
                         result_phrase, meta_phrase = self.model.search(
-                            batch_query, retrieval_unit='phrase', top_k=TOP_K)
+                            batch_query, retrieval_unit='phrase', top_k=self.TOP_K)
 
                         phrase_sentence = []
                         for sentences, phrase_answer_list in zip(result, result_phrase):
@@ -86,14 +94,13 @@ class Retriever():
             return None
 
         elif isinstance(single_query_or_queries_dict, str):  # online search
-            result, meta = self.model.search(
-                single_query_or_queries_dict, retrieval_unit=R_UNIT, top_k=TOP_K)
+            result = self.model.search(
+                single_query_or_queries_dict, retrieval_unit=self.R_UNIT, top_k=self.TOP_K)
 
-            breakpoint()
             if self.args.static:
                 phrase_sentence = []
                 result_phrase, meta_phrase = self.model.search(
-                    single_query_or_queries_dict, retrieval_unit='phrase', top_k=TOP_K)
+                    single_query_or_queries_dict, retrieval_unit='phrase', top_k=self.TOP_K)
                 phrase_answer_list_no_subset = []
                 for answer in result_phrase:
                     is_in = False
@@ -107,7 +114,7 @@ class Retriever():
                 phrase_sentence.append(phrase_answer_list_no_subset + result)
 
                 result = phrase_sentence[0]
-                breakpoint()
+
             return result
         else:
             raise NotImplementedError
@@ -117,7 +124,6 @@ if __name__ == "__main__":
     # parse arguments
     parser = argparse.ArgumentParser(
         description='Retrieve query-relevant collection with varying topK.')
-
     parser.add_argument('--query_encoder_name_or_dir', type=str, default="princeton-nlp/densephrases-multi",
                         help="query encoder name registered in huggingface model hub OR custom query encoder checkpoint directory")
     parser.add_argument('--index_name', type=str, default="start/1048576_flat_OPQ96_small",
@@ -137,6 +143,14 @@ if __name__ == "__main__":
     parser.add_argument("--truecase", action="store_true",
                         help="set True when we use case-sentive language model")
     parser.add_argument("--static", action="store_true")
+    
+    parser.add_argument('--r_unit', type=str, default='sentence')
+    parser.add_argument('--top_k', type=int, default=100)
+    
+    parser.add_argument('--query_encoder_phrase', type=str, default=None,
+                        help="custom query encoder checkpoint directory")
+    parser.add_argument('--query_encoder_sentence', type=str, default=None,
+                        help="custom query encoder checkpoint directory")
 
     args = parser.parse_args()
 

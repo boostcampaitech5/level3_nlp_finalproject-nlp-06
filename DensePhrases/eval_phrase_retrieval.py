@@ -17,7 +17,7 @@ from time import time
 from tqdm import tqdm
 
 from densephrases.utils.eval_utils import normalize_answer, f1_score, exact_match_score, drqa_exact_match_score, \
-        drqa_regex_match_score, drqa_metric_max_over_ground_truths, drqa_normalize
+    drqa_regex_match_score, drqa_metric_max_over_ground_truths, drqa_normalize
 from densephrases.utils.single_utils import load_encoder
 from densephrases.utils.open_utils import load_phrase_index, get_query2vec, load_qa_pairs
 from densephrases.utils.kilt.eval import evaluate as kilt_evaluate
@@ -48,7 +48,8 @@ def embed_all_query(questions, args, query_encoder, tokenizer, batch_size=64):
 
 def evaluate(args, mips=None, query_encoder=None, tokenizer=None, q_idx=None):
     # Load dataset and encode queries
-    qids, questions, answers, _, _, _ = load_qa_pairs(args.test_path, args, q_idx)
+    qids, questions, answers, titles, sentences, contexts = load_qa_pairs(
+        args.test_path, args, q_idx)
 
     if query_encoder is None:
         logger.info(f'Query encoder will be loaded from {args.load_dir}')
@@ -74,11 +75,16 @@ def evaluate(args, mips=None, query_encoder=None, tokenizer=None, q_idx=None):
             top_k=args.top_k, max_answer_length=args.max_answer_length,
             aggregate=args.aggregate, agg_strat=args.agg_strat, return_sent=args.return_sent
         )
-        prediction = [[ret['answer'] for ret in out][:args.top_k] if len(out) > 0 else [''] for out in result]
-        evidence = [[ret['context'] for ret in out][:args.top_k] if len(out) > 0 else [''] for out in result]
-        title = [[ret['title'] for ret in out][:args.top_k] if len(out) > 0 else [['']] for out in result]
-        score = [[ret['score'] for ret in out][:args.top_k] if len(out) > 0 else [-1e10] for out in result]
-        se_pos = [[(ret['start_pos'], ret['end_pos']) for ret in out][:args.top_k] if len(out) > 0 else [(0,0)] for out in result]
+        prediction = [[ret['answer'] for ret in out][:args.top_k]
+                      if len(out) > 0 else [''] for out in result]
+        evidence = [[ret['context'] for ret in out][:args.top_k] if len(out) > 0 else [
+            ''] for out in result]
+        title = [[ret['title'] for ret in out][:args.top_k]
+                 if len(out) > 0 else [['']] for out in result]
+        score = [[ret['score'] for ret in out][:args.top_k]
+                 if len(out) > 0 else [-1e10] for out in result]
+        se_pos = [[(ret['start_pos'], ret['end_pos']) for ret in out]
+                  [:args.top_k] if len(out) > 0 else [(0, 0)] for out in result]
         predictions += prediction
         evidences += evidence
         titles += title
@@ -98,13 +104,17 @@ def evaluate_results(predictions, qids, questions, answers, args, evidences, sco
             for line in f:
                 line = line.strip().lower()
                 candidates.add(line)
-        logger.info(f'{len(candidates)} candidates are loaded from {args.candidate_path}')
-        topk_preds = [list(filter(lambda x: (x in candidates) or (x.lower() in candidates), a)) for a in predictions]
-        topk_preds = [a[:args.top_k] if len(a) > 0 else [''] for a in topk_preds]
+        logger.info(
+            f'{len(candidates)} candidates are loaded from {args.candidate_path}')
+        topk_preds = [list(filter(lambda x: (x in candidates) or (
+            x.lower() in candidates), a)) for a in predictions]
+        topk_preds = [a[:args.top_k] if len(
+            a) > 0 else [''] for a in topk_preds]
         predictions = topk_preds[:]
         top1_preds = [a[0] for a in topk_preds]
     else:
-        predictions = [a[:args.top_k] if len(a) > 0 else [''] for a in predictions]
+        predictions = [a[:args.top_k] if len(
+            a) > 0 else [''] for a in predictions]
         top1_preds = [a[0] for a in predictions]
     no_ans = sum([a == '' for a in top1_preds])
     logger.info(f'no_ans/all: {no_ans}, {len(top1_preds)}')
@@ -113,15 +123,16 @@ def evaluate_results(predictions, qids, questions, answers, args, evidences, sco
     # Get em/f1
     f1s, ems = [], []
     for prediction, groundtruth in zip(top1_preds, answers):
-        if len(groundtruth)==0:
+        if len(groundtruth) == 0:
             f1s.append(0)
             ems.append(0)
             continue
         f1s.append(max([f1_score(prediction, gt)[0] for gt in groundtruth]))
-        ems.append(max([exact_match_score(prediction, gt) for gt in groundtruth]))
+        ems.append(max([exact_match_score(prediction, gt)
+                   for gt in groundtruth]))
     final_f1, final_em = np.mean(f1s), np.mean(ems)
     if not args.regex:
-        logger.info('EM: %.2f, F1: %.2f'%(final_em * 100, final_f1 * 100))
+        logger.info('EM: %.2f, F1: %.2f' % (final_em * 100, final_f1 * 100))
 
     # Top 1/k em (or regex em)
     exact_match_topk = 0
@@ -134,7 +145,8 @@ def evaluate_results(predictions, qids, questions, answers, args, evidences, sco
         # For debugging
         if i < 3:
             logger.info(f'{i+1}) {questions[i]}')
-            logger.info(f'=> groundtruths: {answers[i]}, top 5 prediction: {predictions[i][:5]}')
+            logger.info(
+                f'=> groundtruths: {answers[i]}, top 5 prediction: {predictions[i][:5]}')
 
         match_fn = drqa_regex_match_score if args.regex else drqa_exact_match_score
         em_topk = max([drqa_metric_max_over_ground_truths(
@@ -155,7 +167,7 @@ def evaluate_results(predictions, qids, questions, answers, args, evidences, sco
         f1_topk = 0
         f1_top1 = 0
         if not args.regex:
-            match_fn = lambda x, y: f1_score(x, y)[0]
+            def match_fn(x, y): return f1_score(x, y)[0]
             f1_topk = max([drqa_metric_max_over_ground_truths(
                 match_fn, prediction, answers[i]
             ) for prediction in predictions[i][:args.top_k]])
@@ -168,22 +180,24 @@ def evaluate_results(predictions, qids, questions, answers, args, evidences, sco
         # Score statistics
         assert len(predictions[i]) <= args.top_k
         pred_out[qids[i]] = {
-                'question': questions[i],
-                'answer': answers[i], 'prediction': predictions[i], 'score': scores[i], 'title': titles[i],
-                'evidence': evidences[i] if evidences is not None else '',
-                'em_top1': bool(em_top1), f'em_top{args.top_k}': bool(em_topk),
-                'f1_top1': f1_top1, f'f1_top{args.top_k}': f1_topk,
-                'se_pos': se_positions[i] if se_positions is not None else (-1, -1),
-                'rd_topk': rd_topk,
+            'question': questions[i],
+            'answer': answers[i], 'prediction': predictions[i], 'score': scores[i], 'title': titles[i],
+            'evidence': evidences[i] if evidences is not None else '',
+            'em_top1': bool(em_top1), f'em_top{args.top_k}': bool(em_topk),
+            'f1_top1': f1_top1, f'f1_top{args.top_k}': f1_topk,
+            'se_pos': se_positions[i] if se_positions is not None else (-1, -1),
+            'rd_topk': rd_topk,
         }
 
     total = len(predictions)
     exact_match_top1 = 100.0 * exact_match_top1 / total
     f1_score_top1 = 100.0 * f1_score_top1 / total
-    logger.info({'exact_match_top1': exact_match_top1, 'f1_score_top1': f1_score_top1})
+    logger.info({'exact_match_top1': exact_match_top1,
+                'f1_score_top1': f1_score_top1})
     exact_match_topk = 100.0 * exact_match_topk / total
     f1_score_topk = 100.0 * f1_score_topk / total
-    logger.info({f'exact_match_top{args.top_k}': exact_match_topk, f'f1_score_top{args.top_k}': f1_score_topk})
+    logger.info({f'exact_match_top{args.top_k}': exact_match_topk,
+                f'f1_score_top{args.top_k}': f1_score_topk})
     redundant_topk = redundant_topk / total
     logger.info({f'redundancy of top{args.top_k}': redundant_topk})
 
@@ -197,7 +211,8 @@ def evaluate_results(predictions, qids, questions, answers, args, evidences, sco
 
     if args.save_pred:
         pred_path = os.path.join(
-            pred_dir, os.path.splitext(os.path.basename(args.test_path))[0] + f'_{total}_top{args.top_k}.pred'
+            pred_dir, os.path.splitext(os.path.basename(args.test_path))[
+                0] + f'_{total}_top{args.top_k}.pred'
         )
         logger.info(f'Saving prediction file to {pred_path}')
         with open(pred_path, 'w') as f:
@@ -211,12 +226,13 @@ def evaluate_results(predictions, qids, questions, answers, args, evidences, sco
 
 
 def evaluate_results_kilt(predictions, qids, questions, answers, args, evidences, scores, titles, se_positions=None):
-    total=len(predictions)
+    total = len(predictions)
 
     # load title2id dict and convert predicted titles into wikipedia_ids
     with open(args.title2wikiid_path) as f:
         title2wikiid = json.load(f)
-    pred_wikipedia_ids = [[[title2wikiid[t] for t in title_] for title_ in title] for title in titles]
+    pred_wikipedia_ids = [[[title2wikiid[t] for t in title_]
+                           for title_ in title] for title in titles]
 
     # dump official predictions
     if len(args.load_dir) == 0:
@@ -227,13 +243,14 @@ def evaluate_results_kilt(predictions, qids, questions, answers, args, evidences
         os.makedirs(pred_dir)
     pred_official_path = os.path.join(
         pred_dir, f'{args.load_dir.split("/")[-1]}_' +
-        os.path.splitext(os.path.basename(args.test_path))[0] + f'_{total}.jsonl'
+        os.path.splitext(os.path.basename(args.test_path))[
+            0] + f'_{total}.jsonl'
     )
     official_preds_to_save = []
     for prediction, title, question, pred_wikipedia_id, qid in zip(predictions, titles, questions, pred_wikipedia_ids, qids):
         if ("wned" in pred_official_path or
             "cweb" in pred_official_path or
-            "aidayago2" in pred_official_path):
+                "aidayago2" in pred_official_path):
             answer = title[0][0]
         else:
             answer = prediction[0].strip(string.punctuation)
@@ -258,12 +275,12 @@ def evaluate_results_kilt(predictions, qids, questions, answers, args, evidences
 
     # logging results
     result_to_logging = {
-        'accuracy':result['downstream']['accuracy'],
-        'f1':result['downstream']['f1'],
-        'KILT-accuracy':result['kilt']['KILT-accuracy'],
-        'KILT-f1':result['kilt']['KILT-f1'],
-        'Rprec':result['retrieval']['Rprec'],
-        'recall@5':result['retrieval']['recall@5']
+        'accuracy': result['downstream']['accuracy'],
+        'f1': result['downstream']['f1'],
+        'KILT-accuracy': result['kilt']['KILT-accuracy'],
+        'KILT-f1': result['kilt']['KILT-f1'],
+        'Rprec': result['retrieval']['Rprec'],
+        'recall@5': result['retrieval']['recall@5']
     }
 
     logger.info(result_to_logging)
@@ -274,24 +291,26 @@ def evaluate_results_kilt(predictions, qids, questions, answers, args, evidences
         # For debugging
         if i < 3:
             logger.info(f'{i+1}) {questions[i]}')
-            logger.info(f'=> groundtruths: {answers[i]}, top 5 prediction: {predictions[i][:5]}')
+            logger.info(
+                f'=> groundtruths: {answers[i]}, top 5 prediction: {predictions[i][:5]}')
 
         guess_answer = predictions[i][0]
         gold_candidate_answers = answers[i]
         local_accuracy = 0
         if guess_answer in gold_candidate_answers:
             local_accuracy = 1
-        
+
         pred_out[qids[i]] = {
-                'question': questions[i],
-                'answer': answers[i], 'prediction': predictions[i], 'score': scores[i], 'title': titles[i],
-                'evidence': evidences[i] if evidences is not None else '',
-                'em_top1': bool(local_accuracy),
+            'question': questions[i],
+            'answer': answers[i], 'prediction': predictions[i], 'score': scores[i], 'title': titles[i],
+            'evidence': evidences[i] if evidences is not None else '',
+            'em_top1': bool(local_accuracy),
         }
 
     # dump custom predictions
     pred_path = os.path.join(
-        pred_dir, os.path.splitext(os.path.basename(args.test_path))[0] + f'_{total}.pred'
+        pred_dir, os.path.splitext(os.path.basename(args.test_path))[
+            0] + f'_{total}.pred'
     )
     logger.info(f'Saving custom prediction file to {pred_path}')
     with open(pred_path, 'w') as f:
@@ -310,32 +329,41 @@ def evaluate_results_psg(pred_path, args):
         my_dict = {"id": str(qid), "question": None, "answers": [], "ctxs": []}
 
         # truncate
-        pred = {key: val[:args.psg_top_k] if key in ['evidence', 'title', 'se_pos', 'prediction'] else val for key, val in pred.items()}
+        pred = {key: val[:args.psg_top_k] if key in [
+            'evidence', 'title', 'se_pos', 'prediction'] else val for key, val in pred.items()}
 
         # TODO: need to add id for predictions.pred
         my_dict["question"] = pred["question"]
         my_dict["answers"] = pred["answer"]
         pred["title"] = [titles[0] for titles in pred["title"]]
 
-        assert len(set(pred["evidence"])) == len(pred["evidence"]) == len(pred["title"]), "Should use opt2 for aggregation"
+        assert len(set(pred["evidence"])) == len(pred["evidence"]) == len(
+            pred["title"]), "Should use opt2 for aggregation"
         # assert all(pr in evd for pr, evd in zip(pred["prediction"], pred["evidence"]))  # prediction included TODO: fails when return_sent=True
 
         # Pad up to top-k
-        if not(len(pred["prediction"]) == len(pred["evidence"]) == len(pred["title"]) == args.psg_top_k):
+        if not (len(pred["prediction"]) == len(pred["evidence"]) == len(pred["title"]) == args.psg_top_k):
             assert len(pred["prediction"]) == len(pred["evidence"]) == len(pred["title"]) < args.psg_top_k, \
-                (len(pred["prediction"]), len(pred["evidence"]), len(pred["title"]))
+                (len(pred["prediction"]), len(
+                    pred["evidence"]), len(pred["title"]))
             # logger.info(len(pred["prediction"]), len(pred["evidence"]), len(pred["title"]))
 
-            pred["evidence"] += [pred["evidence"][-1]] * (args.psg_top_k - len(pred["prediction"]))
-            pred["title"] += [pred["title"][-1]] * (args.psg_top_k - len(pred["prediction"]))
-            pred["se_pos"] += [pred["se_pos"][-1]] * (args.psg_top_k - len(pred["prediction"]))
-            pred["prediction"] += [pred["prediction"][-1]] * (args.psg_top_k - len(pred["prediction"]))
-            assert len(pred["prediction"]) == len(pred["evidence"]) == len(pred["title"]) == args.psg_top_k
+            pred["evidence"] += [pred["evidence"][-1]] * \
+                (args.psg_top_k - len(pred["prediction"]))
+            pred["title"] += [pred["title"][-1]] * \
+                (args.psg_top_k - len(pred["prediction"]))
+            pred["se_pos"] += [pred["se_pos"][-1]] * \
+                (args.psg_top_k - len(pred["prediction"]))
+            pred["prediction"] += [pred["prediction"][-1]] * \
+                (args.psg_top_k - len(pred["prediction"]))
+            assert len(pred["prediction"]) == len(
+                pred["evidence"]) == len(pred["title"]) == args.psg_top_k
 
         # Used for markers
         START = '<p_start>'
         END = '<p_end>'
-        se_idxs = [[se_pos[0], max(se_pos[0], se_pos[1])] for se_pos in pred["se_pos"]]
+        se_idxs = [[se_pos[0], max(se_pos[0], se_pos[1])]
+                   for se_pos in pred["se_pos"]]
 
         # cut based on max psg len
         my_dict["ctxs"] = [
@@ -346,20 +374,23 @@ def evaluate_results_psg(pred_path, args):
         # Add markers for predicted phrases
         if args.mark_phrase:
             my_dict["ctxs"] = [
-                {"title": ctx["title"], "text": ctx["text"][:se[0]] + f"{START} " + ctx["text"][se[0]:se[1]] + f" {END}" + ctx["text"][se[1]:]}
+                {"title": ctx["title"], "text": ctx["text"][:se[0]] + f"{START} " +
+                    ctx["text"][se[0]:se[1]] + f" {END}" + ctx["text"][se[1]:]}
                 for ctx, se in zip(my_dict["ctxs"], se_idxs)
             ]
 
         my_target.append(my_dict)
         avg_len += [len(ctx['text'].split()) for ctx in my_dict["ctxs"]]
         assert len(my_dict["ctxs"]) == args.psg_top_k
-        assert all(len(ctx['text'].split()) <= args.max_psg_len for ctx in my_dict["ctxs"])
+        assert all(len(ctx['text'].split()) <=
+                   args.max_psg_len for ctx in my_dict["ctxs"])
 
-    logger.info(f"avg psg len={sum(avg_len)/len(avg_len):.2f} for {len(my_pred)} preds")
+    logger.info(
+        f"avg psg len={sum(avg_len)/len(avg_len):.2f} for {len(my_pred)} preds")
 
     out_file = os.path.join(
         os.environ['SAVE_DIR'], os.path.basename(args.load_dir), 'pred',
-        os.path.splitext(os.path.basename(pred_path))[0] + 
+        os.path.splitext(os.path.basename(pred_path))[0] +
         f'_{"sent" if args.return_sent else "psg"}-top{args.psg_top_k}{"_mark" if args.mark_phrase else ""}.json'
     )
     logger.info(f"dump to {out_file}")
@@ -408,12 +439,13 @@ if __name__ == '__main__':
                 new_args.regex = True
                 logger.info('Enable regex for TREC')
             if 'webq' in test_path:
-                new_args.candidate_path = os.path.join(os.environ['DATA_DIR'], 'open-qa/webq/freebase-entities.txt')
+                new_args.candidate_path = os.path.join(
+                    os.environ['DATA_DIR'], 'open-qa/webq/freebase-entities.txt')
                 logger.info('Enable candidates for WebQuestions')
             em, _, _, _ = evaluate(new_args, mips, query_encoder, tokenizer)
             ems.append(f'{em:.1f}')
         logger.info(f"Results of {args.load_dir}")
         logger.info(f'Top1 EMs: {" ".join(ems)}')
-    
+
     else:
         raise NotImplementedError
