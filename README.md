@@ -18,7 +18,7 @@
 ## Members
 |<img src='https://avatars.githubusercontent.com/u/74442786?v=4' height=100 width=100px></img>|<img src='https://avatars.githubusercontent.com/u/99644139?v=4' height=100 width=100px></img>|<img src='https://avatars.githubusercontent.com/u/50359820?v=4' height=100 width=100px></img>|<img src='https://avatars.githubusercontent.com/u/85860941?v=4' height=100 width=100px></img>|<img src='https://avatars.githubusercontent.com/u/106165619?v=4' height=100 width=100px></img>|
 |:---:|:---:|:---:|:---:|:---:|
-| [김민호](https://github.com/GrapeDiget) | [김성은](https://github.com/seongeun-k) | [김지현](https://github.com/jihyeeon) | [서가은](https://github.com/gaeun0112) | [홍영훈](https://github.com/MostlyFor) |
+| [김민호](https://github.com/GrapeDiget) | [김성은](https://github.com/i-mprovising)) | [김지현](https://github.com/jihyeeon) | [서가은](https://github.com/gaeun0112) | [홍영훈](https://github.com/MostlyFor) |
 
 ### Contribution
 - 김민호 : Query loss의 단위 변경, Loss의 구성 요소 추가
