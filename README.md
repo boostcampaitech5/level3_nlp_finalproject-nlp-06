@@ -1,6 +1,6 @@
 # Compress retrieved collection with DensePhrases
 
-<a href="https://youtu.be/K8NJ71x_Ia8"><img src="https://img.shields.io/badge/Presentation video-FFFFFF?style=for-the-badge&logo=youtube&logoColor=ff0000"/></a> <a href="./assets/docs/[최종] NLP_06조_생성형 검색을 위한 프롬프트 경량화.pdf"><img src="https://img.shields.io/badge/Presentation-FFFFFF?style=for-the-badge&logo=microsoftpowerpoint&logoColor=B7472A"/></a> <a href=""><img src="https://img.shields.io/badge/Wrapup report-FFFFFF?style=for-the-badge&logo=googlesheets&logoColor=34A853"/></a> <a href="https://boostcampait.notion.site/NLP-06-aed368eab95e4b78bcab82d528a18d35?pvs=4"><img src="https://img.shields.io/badge/Project summary-FFFFFF?style=for-the-badge&logo=notion&logoColor=000000"/></a>
+<a href="https://youtu.be/K8NJ71x_Ia8"><img src="https://img.shields.io/badge/Presentation video-FFFFFF?style=for-the-badge&logo=youtube&logoColor=ff0000"/></a> <a href="./assets/docs/[최종] NLP_06조_생성형 검색을 위한 프롬프트 경량화.pdf"><img src="https://img.shields.io/badge/Presentation-FFFFFF?style=for-the-badge&logo=microsoftpowerpoint&logoColor=B7472A"/></a> <a href="https://docs.google.com/document/d/1vW2N35_0SOVTO9TCv5H0HOLWqqaqKl9cWBU_NhqpHi4/edit?usp=sharing"><img src="https://img.shields.io/badge/Wrapup report-FFFFFF?style=for-the-badge&logo=googlesheets&logoColor=34A853"/></a> <a href="https://eojjeol-stones.notion.site/NLP-06-8ff20f24f6324f00ba3e2cfb948614ee?pvs=4"><img src="https://img.shields.io/badge/Project summary-FFFFFF?style=for-the-badge&logo=notion&logoColor=000000"/></a>
 
 ## Overview
 ![Overview](/assets/img/overview.png)
@@ -36,9 +36,9 @@
 
 ## Detail
 
-- [발표 및 시연 영상]()
-- [발표 자료]()
-- [프로젝트 랩업 리포트]()
+- [발표 및 시연 영상](https://youtu.be/K8NJ71x_Ia8)
+- [발표 자료](https://github.com/boostcampaitech5/level3_nlp_finalproject-nlp-06/blob/main/assets/docs/[%EC%B5%9C%EC%A2%85]%20NLP_06%EC%A1%B0_%EC%83%9D%EC%84%B1%ED%98%95%20%EA%B2%80%EC%83%89%EC%9D%84%20%EC%9C%84%ED%95%9C%20%ED%94%84%EB%A1%AC%ED%94%84%ED%8A%B8%20%EA%B2%BD%EB%9F%89%ED%99%94.pdf)
+- [프로젝트 랩업 리포트](https://docs.google.com/document/d/1vW2N35_0SOVTO9TCv5H0HOLWqqaqKl9cWBU_NhqpHi4/edit?usp=sharing)
 - [프로젝트 소개 노션 페이지](https://boostcampait.notion.site/NLP-06-aed368eab95e4b78bcab82d528a18d35?pvs=4)
 
 ## Acknowledgement
