@@ -40,6 +40,9 @@ class Retriever():
 
     def retrieve(self, single_query_or_queries_dict):
         queries_batch = []
+        R_UNIT = self.args.retrieve_mode
+        print(f'R_UNIT:{self.args.retrieve_mode}')
+        
         if isinstance(single_query_or_queries_dict, dict):  # batch search
             queries, qids = single_query_or_queries_dict['queries'], single_query_or_queries_dict['qids']
 
@@ -133,6 +136,8 @@ if __name__ == "__main__":
                         help="output runfile name which indluces query id and retrieved collection")
     parser.add_argument('--batch_size', type=int, default=128,
                         help="#query to process with parallel processing")
+    parser.add_argument('--retrieve_mode', type=str, default="sentence",
+                        help="R UNIT")
     parser.add_argument('--agg_add_weight', type=bool, default=False,
                         help="weight scores for duplicate unit when aggregate")
     parser.add_argument("--truecase", action="store_true",

@@ -223,16 +223,13 @@ class Options():
         self.parser.add_argument('--num_train_epochs', default=10, type=float)
         self.parser.add_argument("--learning_rate", default=3e-5, type=float)
         self.parser.add_argument("--warmup_steps", default=0.1, type=int)
-        self.parser.add_argument(
-            '--gradient_accumulation_steps', type=int, default=1)
-        self.parser.add_argument(
-            "--weight_decay", default=0.1, type=float, help="Weight decay if we apply some.")
-        self.parser.add_argument(
-            "--adam_epsilon", default=1e-8, type=float, help="Epsilon for Adam optimizer.")
-        self.parser.add_argument(
-            "--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
-        self.parser.add_argument('--label_strat', default='phrase',
-                                 type=str, help="label strat={phrase|doc|sentence|context}")
+        self.parser.add_argument('--gradient_accumulation_steps', type=int, default=1)
+        self.parser.add_argument("--weight_decay", default=0.1, type=float, help="Weight decay if we apply some.")
+        self.parser.add_argument("--adam_epsilon", default=1e-8, type=float, help="Epsilon for Adam optimizer.")
+        self.parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
+        self.parser.add_argument('--label_strat', default='phrase', type=str, help="label strat={phrase|doc|phrase,doc}")
+        self.parser.add_argument('--distillation', action="store_true", help="Distillation option while QSFT")
+        self.parser.add_argument('--distill_train', action="store_true", help="Distillation option while QSFT")
         self.parser.add_argument('--add_component', type=bool, default=False)
 
     def add_demo_options(self):

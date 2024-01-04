@@ -56,9 +56,8 @@ def evaluate(args, mips=None, query_encoder=None, tokenizer=None, q_idx=None):
         device = 'cuda' if args.cuda else 'cpu'
         query_encoder, tokenizer, _ = load_encoder(device, args)
     query_vec = embed_all_query(questions, args, query_encoder, tokenizer)
-
     # Load MIPS
-    if mips is None:
+    if mips is None: 
         mips = load_phrase_index(args)
 
     # Search

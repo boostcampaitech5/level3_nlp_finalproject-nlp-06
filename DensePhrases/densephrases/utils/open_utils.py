@@ -113,6 +113,8 @@ def load_qa_pairs(data_path, args, q_idx=None, draft_num_examples=100, shuffle=F
     questions = []
     answers = []
     titles = []
+    contexts = []
+    ans_pos_list = []
     sentences = []
     contexts = []
     data = json.load(open(data_path))['data']
@@ -128,8 +130,11 @@ def load_qa_pairs(data_path, args, q_idx=None, draft_num_examples=100, shuffle=F
             question = question[max(question.index(
                 '[START_ENT]')-300, 0):question.index('[END_ENT]')+300]
         answer = item['answers']
-        title = item.get('title', [''])
+        title = item.get('titles', [''])
         context = item.get('context', [''])
+        if context != ['']:
+            context = context.strip()
+
         sentence = item.get('sentence', [''])
         if len(answer) == 0:
             continue
@@ -138,6 +143,7 @@ def load_qa_pairs(data_path, args, q_idx=None, draft_num_examples=100, shuffle=F
         questions.append(question)
         answers.append(answer)
         titles.append(title)
+
         sentences.append(sentence)
         contexts.append(context)
 
@@ -181,3 +187,4 @@ def load_qa_pairs(data_path, args, q_idx=None, draft_num_examples=100, shuffle=F
     logger.info(
         f'Sample Q ({q_ids[0]}): {questions[0]}, A: {answers[0]}, Title: {titles[0]}, Sentence: {sentences[0]}')
     return q_ids, questions, answers, titles, sentences, contexts
+

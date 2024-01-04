@@ -35,7 +35,7 @@ large-index-sq:
 
 # Dataset paths
 nq-open-data:
-	$(eval TRAIN_DATA=open-qa/nq-open/train_preprocessed.json)
+	$(eval TRAIN_DATA=refined_title_sq_train.json)
 	$(eval DEV_DATA=open-qa/nq-open/dev_preprocessed.json)
 	$(eval TEST_DATA=open-qa/nq-open/test_preprocessed.json)
 	$(eval OPTIONS=--truecase)

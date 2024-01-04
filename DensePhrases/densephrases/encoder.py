@@ -65,8 +65,10 @@ class Encoder(PreTrainedModel):
                 mean=0.0, std=self.config.initializer_range)
         if isinstance(module, nn.Linear) and module.bias is not None:
             module.bias.data.zero_()
+            
+            
 
-    def merge_inputs(self, input_ids_, attention_mask_, input_ids, attention_mask):
+    def merge_inputs(self, input_ids_, attention_mask_, input_ids, attention_mask, title_append=True):
         """ Merge queries and passages for the cross encoder """
         new_input_ids = []
         new_attention_mask = []
@@ -74,8 +76,10 @@ class Encoder(PreTrainedModel):
         max_len = input_ids_[0].shape[0] + input_ids[0].shape[0]
         for input_id_, att_mask_, input_id, att_mask in zip(input_ids_, attention_mask_, input_ids, attention_mask):
             new_input_id = torch.zeros(max_len).long().to(self.device)
-            title_sep = (input_id == self.tokenizer.sep_token_id).nonzero(
-                as_tuple=True)[0][0]  # first sep is title
+            title_sep = 0
+            if title_append:
+                title_sep = (input_id == self.tokenizer.sep_token_id).nonzero(as_tuple=True)[0][0] # first sep is title
+
             sep_input_id = input_id[title_sep+1:att_mask.sum()]
             new_input_id[:att_mask_.sum()+att_mask.sum()-1-title_sep] = torch.cat(
                 [input_id_[:att_mask_.sum()], sep_input_id], dim=0
@@ -413,9 +417,13 @@ class Encoder(PreTrainedModel):
         self,
         input_ids_=None, attention_mask_=None, token_type_ids_=None,
         start_vecs=None, end_vecs=None,
-        targets=None, p_targets=None, s_targets=None, c_targets=None,
-        add_component=None
+        targets=None, p_targets=None,s_targets=None, c_targets=None,
+        input_ids=None, attention_mask=None, token_type_ids=None,
+        all_stoken_index=None, all_etoken_index=None,
+         add_component=None
     ):
+        self.lambda_kl = 3.0
+        distill_loss = 0
 
         # Skip if no targets for phrases
         if start_vecs is not None:
@@ -431,12 +439,73 @@ class Encoder(PreTrainedModel):
             start_vecs.transpose(1, 2)).squeeze(1)
         end_logits = query_end.matmul(end_vecs.transpose(1, 2)).squeeze(1)
         logits = start_logits + end_logits
+        
+        '''
+        distillation loss
+        '''
+        if self.lambda_kl > 0:
+            self.cross_encoder.eval()
+            with torch.no_grad():
+                new_input_ids, new_attention_mask, new_token_type_ids = self.merge_inputs(
+                    input_ids_, attention_mask_, input_ids, attention_mask, title_append=False
+                )
+                outputs_qd = self.cross_encoder(
+                    new_input_ids,
+                    attention_mask=new_attention_mask,
+                    token_type_ids=new_token_type_ids,
+                )
+                tmp_sequence_output = outputs_qd[0]
+                sequence_output = []
+                for i, (seq_output, att_mask_, input_id) in enumerate(zip(tmp_sequence_output, attention_mask_, input_ids)):
+                    title_sep = (input_id == self.tokenizer.sep_token_id).nonzero(as_tuple=True)[0][0]
+                    new_logits = self.qa_outputs(torch.cat((
+                        seq_output[:1], seq_output[att_mask_.sum():att_mask_.sum()+input_ids.shape[1]-1])
+                    ))
+                    new_logits[title_sep-att_mask_.sum()+1] = -1e4
+                    sequence_output.append(new_logits)
+                sequence_output = torch.stack(sequence_output)
 
+                start_logits_qd, end_logits_qd = sequence_output.split(1, dim=-1)
+                start_logits_qd, end_logits_qd = start_logits_qd.squeeze(-1), end_logits_qd.squeeze(-1)
+            
+            qd_start_logit_list =  [softmax(qd_start_logit[:att_msk.sum()], -1) for qd_start_logit, att_msk in zip(start_logits_qd, attention_mask)]
+            qd_end_logit_list =  [softmax(qd_end_logit[:att_msk.sum()],-1) for qd_end_logit, att_msk in zip(end_logits_qd, attention_mask)]
+            
+            # all_stoken_index 돌면서 -1 = None 이 아닌 값들의 index 를 가지고와서 해당 인덱스의 start_logits[i][s_index] 와 qd_start_logit_list 의[i][s_index] 의 값을 비교한다.
+            distill_start_logit = [[softmax(start_logits[i], -1)[j] for j, stoken in enumerate(stoken_index) if stoken!=-1 and stoken.item()<384] for i,stoken_index in enumerate(all_stoken_index)]
+            distill_end_logit = [[softmax(end_logits[i], -1)[j] for j, etoken in enumerate(etoken_index) if etoken!=-1 and etoken.item()<384] for i,etoken_index in enumerate(all_etoken_index)]
+            distill_start_logit_qd = [[qd_start_logit_list[i][stoken.long().item()] for stoken in stoken_index if stoken!=-1 and stoken.item()<384] for i,stoken_index in enumerate(all_stoken_index)]
+            distill_end_logit_qd = [[qd_end_logit_list[i][etoken.long().item()] for etoken in etoken_index if etoken!=-1 and etoken.item()<384] for i,etoken_index in enumerate(all_etoken_index)]
+            
+            l2_loss= nn.MSELoss(reduction='mean')
+            
+            start_loss = [
+                l2_loss(torch.Tensor(lg), torch.Tensor(tg)) for lg, tg in zip(distill_start_logit, distill_start_logit_qd)
+                if len(tg) > 0
+            ]
+            end_loss = [
+                l2_loss(torch.Tensor(lg), torch.Tensor(tg)) for lg, tg in zip(distill_end_logit, distill_end_logit_qd)
+                if len(tg) > 0
+            ]
+            
+            dstart_loss = 0
+            dend_loss = 0
+            
+            if len(start_loss)>0:
+                dstart_loss = sum(start_loss)/len(start_loss)
+            if len(end_loss)>0:
+                dend_loss = sum(end_loss)/len(end_loss)
+            
+            distill_loss = (dstart_loss + dend_loss)/2.0 * self.lambda_kl
+            # Distill logits
+    
+        ########## Distillation End
+        
         # L_phrase: MML over phrase-level annotation
         log_probs = 0.0
         MIN_PROB = 1e-7
         if not all([len(t) == 0 for t in targets]):
-            log_probs = [
+            log_probs = [ # 정답이 있는 logit (phrase) 이 높게 되어 있는지를 확인하고 nll -> 1에 가까울 수록 loss 는 0 에 가까워짐 (정답을 정답이라고 옳게 예측하면 loss 0)
                 -torch.log(softmax(lg, -1)[tg.long()].sum().clamp(MIN_PROB, 1)) for lg, tg in zip(logits, targets)
                 if len(tg) > 0
             ]
@@ -467,8 +536,8 @@ class Encoder(PreTrainedModel):
                 log_probs = log_probs + sum(doc_log_probs)/len(doc_log_probs)
 
             p_start_logits = start_logits.clone()
-            for b_idx, p_start_logit in enumerate(p_start_logits):
-                p_start_logits[b_idx][targets[b_idx].long()] = -1e9
+            for b_idx, p_start_logit in enumerate(p_start_logits): # batch index 와 logit
+                p_start_logits[b_idx][targets[b_idx].long()] = -1e9 # phrase 와 같이 사용할 때 phrase 에서 정답이 되는 애들의 점수를 최대한 낮춰준다.
             p_start_loss = [
                 -torch.log(softmax(lg, -1)[tg.long()].sum().clamp(MIN_PROB, 1)) for lg, tg in zip(p_start_logits, p_targets)
                 if len(tg) > 0
@@ -548,6 +617,7 @@ class Encoder(PreTrainedModel):
                 sum(s_start_loss)/len(s_start_loss) + \
                 sum(s_end_loss)/len(s_end_loss)
 
+        log_probs = log_probs + distill_loss
         _, rerank_idx = torch.sort(logits, -1, descending=True)
         top1_acc = [rerank[0] in target for rerank,
                     target in zip(rerank_idx, targets)]
